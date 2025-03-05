@@ -505,7 +505,7 @@ int checkCMD(void){
     else{
         if(times_retry>100){
           RAISE_WARNING(__LINE__);
-          Serial1.print("Fail to get command");
+          Serial1.println("Fail to get command");
           times_retry = 0;
         }
         delay(10);
