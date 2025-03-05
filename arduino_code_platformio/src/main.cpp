@@ -17,6 +17,10 @@
 #define DACC_MAX_VALUE 4095 
 #define DACC_INTERFACE DACC
 
+uint8_t   enc_readings[SENSOR_BUF_MAXLEN];
+uint16_t  enc_times[SENSOR_BUF_MAXLEN];
+int       enc_data_index=0;
+
 const float VREFB = 10;   
 const float VREFA = 5.0;
 
@@ -69,6 +73,8 @@ const int pin_fv = 36;
 
 const int pin_solenoid = 37;
 
+const int pin_encoder_pin1 = 2;
+const int pin_encoder_pin2 = 3;
 // Index into array indicates stimulus number as specified in Matlab, value at that index is corresponding pin number on Arduino
 // Index zero should always have zero value because there is no stimulus 0
 // Other zeros can be filled in with other values as needed
@@ -350,26 +356,28 @@ void setup() {
 // The StateMachines handle their own timing
 // It's critical that this loop runs fast (< 1 ms period) so don't put anything in here that takes time to execute
 // if a trial is running (e.g. "blocking" serial port access should only happen when trial isn't RUNNING)
+
 void loop() {
 
   delay(500);
 
   if (RUNNING) {
-      //FIXME:RUNNING = false when trial finished
       unsigned long slot_start_us,slot_intermediate_us;
       int execute_us;
       unsigned long trial_start_ms,trial_current_ms;
       int execute_ms;
       bool end_flag = false;
-      //FIXME:add Preprocess code here
-      trial_start_ms = mills();
+      //Preprocess code begin
+      enc_buf_reset();
+      //Preprocess code end
+      trial_start_ms = millis();
       while(!end_flag){//a trial is divided into 1ms slots
         slot_start_us = micros();
-        trial_current_ms = mills();
+        trial_current_ms = millis();
         execute_ms = trial_current_ms - trial_start_ms;
 
         end_flag=trial_output_monit(execute_ms);
-        trial_input_read();
+        trial_input_read(execute_ms);
         
         slot_intermediate_us = micros();
         
@@ -381,65 +389,8 @@ void loop() {
           RAISE_ERROR(__LINE__);//BIG_PROBLEM:time to ececute functions longer than 1ms
         }
       }
-
-      // camera.update();
-
-      // enc.update();
-
-      // if (param_stimdur > 0) { stim.update(); }
-
-        
-      //   if (param_csdur > 0) { 
-      //       if (param_csch == ch_brightled) {
-      //       CS.update();
-      //       } 
-      //       else if(!cs_executed){
-      //         cs_start_time = millis();  
-      //         executeCS(param_csch, param_csdur);
-      //         cs_executed = true; 
-      //       }
-      //   }
-        
-      // // if (cs_executed && !cs2_executed && (millis() - cs_start_time >= param_csdur + param_delay1)) {
-      //     // cs2_start_time = millis(); 
-      //     // executeCS(param_cs2ch, param_cs2dur);
-      //     // cs2_executed = true;  
-      // // }
-
-      // if (cs_executed && !cs2_executed && (millis() - cs_start_time >= param_delay1)) {
-      //     cs2_start_time = millis(); 
-      //     executeCS(param_cs2ch, param_cs2dur);
-      //     cs2_executed = true;  
-      // }
-   
-      // // if (cs2_executed && !cs3_executed && (millis() - cs2_start_time >= param_cs2dur + param_delay2)) {
-      //   // cs3_start_time = millis();  
-      //   // executeCS(param_cs3ch, param_cs3dur);
-      //   // cs3_executed = true;  
-      // // }
-
-      // if (cs2_executed && !cs3_executed && (millis() - cs_start_time >= param_delay2)) {
-      //   cs3_start_time = millis();  
-      //   executeCS(param_cs3ch, param_cs3dur);
-      //   cs3_executed = true;  
-      // }
-      // //if(cs3_executed && !US_executed && (millis() - cs_start_time >= param_ISI)){
-      //   if((cs_executed || cs2_executed || cs3_executed) && !US_executed && (millis() - cs_start_time >= param_ISI)){
-      //       US_start_time = millis();
-      //       executeUS(param_usch, param_usdur);
-      //       US_executed = true;
-      //   }
-
-      
-      // if (camera.checkState()==camera.OFF && cs_executed && cs2_executed && cs3_executed && US_executed) 
-      // {
-      //        cs_executed = false;   
-      //        cs2_executed = false;  
-      //        cs3_executed = false;
-      //        US_executed = false;
-      //       endOfTrial(); 
-      // }
-
+      RUNNING = false;
+      RAISE_HINT(__LINE__);
   }
 
   else {
@@ -447,6 +398,9 @@ void loop() {
       if (Serial.available() > 0) {
 
           int command = Serial.read(); 
+
+          Serial1.print("get command:");
+          Serial1.println(command);
 
           switch(command) {
               case 1:
@@ -1091,20 +1045,32 @@ void sendEncoderData() {
 
     Serial.write(ENCODER_L);
     // Maybe also send number of values so Matlab knows how many to expect (will have to be 2 bytes though)?
-    for (int i=0; i<param_encodernumreadings; i++) {
-        writeLong(enc.getReading(i));
+    for (int i=0; i<param_encodernumreadings; i++) {//FIXME:change param_encodernumreadings to SENSOR_BUF_SENDLEN
+        writeByte(enc_readings[i]);
     }
 
     Serial.write(TIME_L);
     // Maybe also send number of values so Matlab knows how many to expect (will have to be 2 bytes though)?
-    for (int i=0; i<param_encodernumreadings; i++) {
-        writeLong(enc.getTime(i));
+    for (int i=0; i<param_encodernumreadings; i++) {//FIXME:change param_encodernumreadings to SENSOR_BUF_SENDLEN
+        writeTwoByte(enc_times[i]);
     }
+    RAISE_HINT(__LINE__);
 }
 
 // We have to send bytes over the serial port, so break the 32-bit integer into 4 bytes by ANDing only the byte we want
 // and shifting that byte into the first 8 bits
 // Unsigned longs
+void writeByte(uint8_t val){
+  Serial.write(val);
+}
+void writeTwoByte(uint16_t val){
+  byte low_Byte   = val & 0xFF;
+  byte high_Byte  = val >> 8; 
+
+  Serial.write(low_Byte);//send low_byte first
+  Serial.write(high_Byte);
+
+}
 void writeLong(uint32_t long_value) {
     for (int i=0; i<4; i++) {
         // Can we do this instead: (byte)(long_value >> 24) [replacing 24 with appropriate shift]?
@@ -1375,21 +1341,82 @@ void RAISE_HINT(int line_number){
   Serial1.println("]");
 }
 
-
-//trial main function:return true means it's over
-bool digital_auto_action(int delay_ms,int duration_ms,int pin_number,int current_ms){//FIXME,use handler to handle US and CS
-  if(duration_ms>0){
-    if(current_ms<delay_ms){
-      digitalOff(pin_number);
-      return false;
-    }
-    else if(current_ms<delay_ms+duration_ms){
+void pin_driver(int pin_number,bool on){//to make every pin with unified interface
+  if(pin_number==pin_camera){
+    if(on){
       digitalOn(pin_number);
-      return false;
     }
     else{
       digitalOff(pin_number);
-      return true
+    }
+  }
+  else{
+    RAISE_WARNING(__LINE__);//the pin_number 's action has not specified yet,we need to add this case    
+  }
+}
+void channel_driver(int channel_number,bool on){//to make every channel with unified interface
+  int target_pin = stim2pinMapping[channel_number];
+  if(channel_number == param_csch){
+    //======CS=========
+    if(channel_number==ch_brightled){//CS:ch_brightled
+      if(on){
+        digitalOn(target_pin);
+      }
+      else{
+        digitalOff(target_pin);
+      }
+    }
+    else{
+      if(on){
+        digitalWrite(pin_fv, HIGH);
+        digitalWrite(target_pin,HIGH);
+      }
+      else{
+        digitalWrite(pin_fv, LOW);
+        digitalWrite(target_pin,LOW);
+      }
+    }
+  }
+  else if(channel_number == param_cs2ch || channel_number == param_cs3ch){
+    //====CS2,3==========
+    if(on){
+      digitalWrite(pin_fv, HIGH);
+      digitalWrite(target_pin,HIGH);
+    }
+    else{
+      digitalWrite(pin_fv, LOW);
+      digitalWrite(target_pin,LOW);
+    }
+  }
+  else if(channel_number == param_stimch || channel_number == param_usch){
+    //======stim,US=======
+    //US:ch_solenoid,ch_puffer_eye,ch_puffer_other
+    if(on){
+      digitalWrite(target_pin,HIGH);
+    }
+    else{
+      digitalWrite(target_pin,LOW);
+    }
+  }
+  else {
+    RAISE_WARNING(__LINE__);//the channel_number 's action has not specified yet,we need to add this case
+  }
+}
+
+//trial main logic:return true means it's over
+bool digital_auto_action(int delay_ms,int duration_ms,Pin_Chan_Operation IOdriver,int PinorChan_number,int current_ms){
+  if(duration_ms>0){
+    if(current_ms<delay_ms){
+      IOdriver(PinorChan_number,/*false means pin off*/false);
+      return false;
+    }
+    else if(current_ms<delay_ms+duration_ms){
+      IOdriver(PinorChan_number,/*true means pin on*/true);
+      return false;
+    }
+    else{
+      IOdriver(PinorChan_number,/*false means pin off*/false);
+      return true;
     }
   }
   else{//which means this pin or channel is unused
@@ -1405,24 +1432,38 @@ bool trial_output_monit(int execute_ms){
   bool cs2_status;
   bool cs3_status;
   bool us_status;  
-  //------------------|delay                                |duration                             |pin--------------------------
-  //CAMERA
-  camera_status = digital_auto_action(0                                     ,param_campretime+param_camposttime   ,pin_camera                   ,execute_ms,);//FIXME
-  //STIM
-  stim_status   = digital_auto_action(param_campretime+param_stimdelay      ,param_stimdur                        ,stim2pinMapping[param_stimch],execute_ms,);//FIXME
-  //CS
-  cs_status     = digital_auto_action(param_campretime                      ,param_csdur                          ,stim2pinMapping[param_csch]  ,execute_ms,);//FIXME
-  //CS2
-  cs2_status    = digital_auto_action(param_campretime+param_delay1         ,param_cs2dur                         ,stim2pinMapping[param_cs2ch] ,execute_ms,);//FIXME
-  //CS3
-  cs3_status    = digital_auto_action(param_campretime+param_delay2         ,param_cs3dur                         ,stim2pinMapping[param_cs3ch] ,execute_ms,);//FIXME
-  //US
-  us_status     = digital_auto_action(param_campretime+param_ISI            ,param_usdur                          ,stim2pinMapping[param_usch]  ,execute_ms,);//FIXME
+  //---------------------------------|delay                                 |duration                             |IOdriver         |Pin_Chan_number----------------//
+  camera_status = digital_auto_action(0                                     ,param_campretime+param_camposttime   ,pin_driver       ,pin_camera       ,execute_ms );//
+  stim_status   = digital_auto_action(param_campretime+param_stimdelay      ,param_stimdur                        ,channel_driver   ,param_stimch     ,execute_ms );//
+  cs_status     = digital_auto_action(param_campretime                      ,param_csdur                          ,channel_driver   ,param_csch       ,execute_ms );//
+  cs2_status    = digital_auto_action(param_campretime+param_delay1         ,param_cs2dur                         ,channel_driver   ,param_cs2ch      ,execute_ms );//
+  cs3_status    = digital_auto_action(param_campretime+param_delay2         ,param_cs3dur                         ,channel_driver   ,param_cs3ch      ,execute_ms );//
+  us_status     = digital_auto_action(param_campretime+param_ISI            ,param_usdur                          ,channel_driver   ,param_usch       ,execute_ms );//
   
   exit_condition = camera_status && stim_status && cs_status && cs2_status && cs3_status && us_status;
-
+  return exit_condition;
 }
 
-void trial_input_read(void){
-  //ENC
+void enc_buf_reset(void){
+  //make all data tobe ff to inform that the data is valid,add to the main loop,before a trial //FIXME
+  pinMode(pin_encoder_pin1, INPUT_PULLUP);
+  pinMode(pin_encoder_pin1, INPUT_PULLUP);
+  enc_data_index = 0;
+  for(int i=0;i<SENSOR_BUF_MAXLEN;i++){//initialize data
+    enc_readings[i] = 0xFF;
+  }
+}
+
+void trial_input_read(int execute_ms){
+  enc_readings[enc_data_index] = digitalRead(pin_encoder_pin2)*2 + digitalRead(pin_encoder_pin1);
+  /*encode pattern 
+  value encoded  |enc_pin1    |  enc_pin2 | Note
+  FF             |   ---      |    ---    | *The value is invalid(surpass the trial)
+  0              |    0       |     0     |
+  1              |    1       |     0     |
+  2              |    0       |     1     |
+  3              |    1       |     1     |
+  */
+  enc_times[enc_data_index] = (uint16_t)execute_ms;
+  enc_data_index++ ;
 }

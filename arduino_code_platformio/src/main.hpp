@@ -11,17 +11,34 @@
 #define MINDACUNIT 0
 
 
+//===================new code===============================
+#define SENSOR_BUF_MAXLEN 2000
+#define SENSOR_BUF_SENDLEN 1000
+typedef void (*Pin_Chan_Operation)(int PinorChan,bool on);//Pin_Chan_Operation pointer that stands for  channel_driver or pin_driver
+
+void channel_driver(int channel_number,bool on);//to make every channel with unified interface
+
+void pin_driver(int pin_number,bool on);//to make every pin with unified interface
+
+bool digital_auto_action(int delay_ms,int duration_ms,Pin_Chan_Operation IOdriver,int PinorChan_number,int current_ms);
+
+bool trial_output_monit(int execute_ms);
+
+void trial_input_read(int execute_ms);
+
+void enc_buf_reset(void);
+
 void RAISE_ERROR(int);
 
 void RAISE_WARNING(int);
 
 void RAISE_HINT(int);
 
-bool trial_output_monit(int);
+void writeByte(uint8_t val);
 
-void trial_input_read(void);
+void writeTwoByte(uint16_t val);
 
-bool digital_auto_action(int delay_ms,int duration_ms,int pin_number,int current_ms);
+
 
 void DACWrite( int );
 
