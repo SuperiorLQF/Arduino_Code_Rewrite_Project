@@ -99,7 +99,7 @@ void loop() {
   int command = checkCMD();
   switch(command) {
       case 1:
-          startTrial();
+          startConditioning();
           break;
       case 2: 
           sendEncoderData();
@@ -123,7 +123,7 @@ void loop() {
           //toneOff(DAC_PIN);
           break;
       case 9:
-          //start_training();
+          //startLeverTask();  // previously "startTrial()"
           break;
       default:
           break;
@@ -151,7 +151,7 @@ void setup_pins(void){
   Serial1.println("device set up OK");
 }
 
-void enc_reset(void){//enc onlu setup in condition lab
+void enc_reset(void){//enc onlu setup in conditioning lab
   pinMode(pin_enc_pin1, INPUT_PULLUP);
   pinMode(pin_enc_pin2, INPUT_PULLUP);
   enc_data_index = 0;
@@ -160,40 +160,6 @@ void enc_reset(void){//enc onlu setup in condition lab
   }
 }
 //================setup function [end]-========================//
-
-
-//================print info function [begin]==================//
-void RAISE_ERROR(int line_number){
-  Serial1.print("ERROR[");
-  Serial1.print(line_number);
-  Serial1.println("]");
-}
-void RAISE_WARNING(int line_number){
-  Serial1.print("WARN[");
-  Serial1.print(line_number);
-  Serial1.println("]");
-}
-void RAISE_HINT(int line_number){
-  Serial1.print("INFO[");
-  Serial1.print(line_number);
-  Serial1.println("]");
-}
-//================print info function  [end]====================//
-
-
-//================send data function [begin]===================//
-void writeByte(uint8_t val){
-  Serial.write(val);
-}
-void writeTwoByte(uint16_t val){
-  uint8_t low_Byte   = val & 0xFF;
-  uint8_t high_Byte  = val >> 8; 
-
-  Serial.write(low_Byte);//send low_byte first
-  Serial.write(high_Byte);
-
-}
-//================send data function [end]=====================//
 
 
 //================pin driver function [begin]==================//
@@ -282,8 +248,47 @@ bool digital_auto_action(int delay_ms,int duration_ms,Pin_Chan_Operation IOdrive
 //================pin driver function [end]======================//
 
 
-//================condition function [begin]=====================//
-bool trial_output_monit(int execute_ms){
+//================conditioning function [begin]=====================//
+void startConditioning(void){
+  unsigned long slot_start_us,slot_intermediate_us;
+  int execute_us;
+  unsigned long trial_start_ms,trial_current_ms;
+  int execute_ms;
+  bool end_flag = false;
+  //Preprocess code begin
+  enc_reset();  // set enc pins as input mode, and reset the data buffer
+  //Preprocess code end
+  trial_start_ms = millis();
+
+  //================Conditioning LOOP [begin] =========================//
+  while(!end_flag){//a trial is divided into 1ms slots
+    slot_start_us = micros();
+    trial_current_ms = millis();
+    execute_ms = trial_current_ms - trial_start_ms;
+
+    //=== The main process begin ===
+    bool end_flag_1=output_controller(execute_ms);
+    sensor_input_reader(execute_ms);
+    //=== The main process end ===
+
+    end_flag = end_flag_1 && (execute_ms > param_campretime+param_camposttime); //
+    
+    // LOOP timer begin (1 ms per loop)
+    slot_intermediate_us = micros();    
+    execute_us =  slot_intermediate_us - slot_start_us;
+    if(execute_us<1000){
+      delayMicroseconds(1000-execute_us);
+    }
+    else{
+      RAISE_ERROR(__LINE__);//BIG_PROBLEM:time to ececute functions longer than 1ms
+    }
+  }
+  //================Conditioning LOOP [end]   =========================//
+
+  RAISE_HINT(__LINE__);
+}
+
+bool output_controller(int execute_ms){
   bool exit_condition;
   bool camera_status;
   bool stim_status;
@@ -303,7 +308,7 @@ bool trial_output_monit(int execute_ms){
   return exit_condition;
 }
 
-void trial_input_read(int execute_ms){
+void sensor_input_reader(int execute_ms){
   enc_readings[enc_data_index] = digitalRead(pin_enc_pin2)*2 + digitalRead(pin_enc_pin1);
   /*encode pattern 
   value encoded  |enc_pin1    |  enc_pin2 | Note
@@ -317,43 +322,9 @@ void trial_input_read(int execute_ms){
   enc_data_index++ ;
 }
 
-void startTrial(void){
-      unsigned long slot_start_us,slot_intermediate_us;
-      int execute_us;
-      unsigned long trial_start_ms,trial_current_ms;
-      int execute_ms;
-      bool end_flag = false;
-      //Preprocess code begin
-      enc_reset();
-      //Preprocess code end
-      trial_start_ms = millis();
+//================conditioning function [end]=====================//
 
-      //================Conditioning LOOP [begin] =========================//
-      while(!end_flag){//a trial is divided into 1ms slots
-        slot_start_us = micros();
-        trial_current_ms = millis();
-        execute_ms = trial_current_ms - trial_start_ms;
-
-        end_flag=trial_output_monit(execute_ms);
-        trial_input_read(execute_ms);
-        
-        slot_intermediate_us = micros();
-        
-        execute_us =  slot_intermediate_us - slot_start_us;
-        if(execute_us<1000){
-          delayMicroseconds(1000-execute_us);
-        }
-        else{
-          RAISE_ERROR(__LINE__);//BIG_PROBLEM:time to ececute functions longer than 1ms
-        }
-      }
-      //================Conditioning LOOP [end]   =========================//
-
-      RAISE_HINT(__LINE__);
-}
-//================condition function [end]=====================//
-
-//================communicate function [begin]=================//
+//================communicate function (from matlab) [begin]=================//
 void checkVars(void) {
   char param_block[3];
   int header;
@@ -555,10 +526,37 @@ void sendEncoderData(void) {
     }
     RAISE_HINT(__LINE__);
 }
-//================communicate function [begin]=================//
+//================communicate function [end]=================//
 
+//================send data function (to matlab) [begin]===================//
+void writeByte(uint8_t val){
+  Serial.write(val);
+}
+void writeTwoByte(uint16_t val){
+  uint8_t low_Byte   = val & 0xFF;
+  uint8_t high_Byte  = val >> 8; 
 
+  Serial.write(low_Byte);//send low_byte first
+  Serial.write(high_Byte);
+}
+//================send data function [end]=====================//
 
-
+//================print info function [begin]==================//
+void RAISE_ERROR(int line_number){
+  Serial1.print("ERROR[");
+  Serial1.print(line_number);
+  Serial1.println("]");
+}
+void RAISE_WARNING(int line_number){
+  Serial1.print("WARN[");
+  Serial1.print(line_number);
+  Serial1.println("]");
+}
+void RAISE_HINT(int line_number){
+  Serial1.print("INFO[");
+  Serial1.print(line_number);
+  Serial1.println("]");
+}
+//================print info function  [end]====================//
 
 

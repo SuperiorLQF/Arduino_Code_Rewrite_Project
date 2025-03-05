@@ -21,9 +21,9 @@ void channel_driver(int channel_number,bool on);//to make every channel with uni
 void pin_driver(int pin_number,bool on);//to make every pin with unified interface
 bool digital_auto_action(int delay_ms,int duration_ms,Pin_Chan_Operation IOdriver,int PinorChan_number,int current_ms);
 
-bool trial_output_monit(int execute_ms);
-void trial_input_read(int execute_ms);
-void startTrial(void);
+bool output_controller(int execute_ms);
+void sensor_input_reader(int execute_ms);
+void startConditioning(void);
 void sendEncoderData(void);
 
 void checkVars(void);
