@@ -160,8 +160,7 @@ int param_cs3dur = 500;
 int param_delay1 = 500;
 int param_delay2 = 500;
 
-//int param_evdelay = 500;
-
+//int param_evdelay = 5
 int param_ISI = 200;
 int odor_ITI = 200;
 int param_usdur = 20;
@@ -216,7 +215,8 @@ unsigned long elecStartTime = 0;
 unsigned long laserStartTime = 0;
 unsigned long toneStartTime = 0;
 
-bool RUNNING = false;
+bool RUNNING  = false;
+bool TRAINING = false;
 bool elec_running = false;
 bool isToneOn = false;
 bool training_active = false;
@@ -1336,7 +1336,7 @@ void RAISE_WARNING(int line_number){
   Serial1.println("]");
 }
 void RAISE_HINT(int line_number){
-  Serial1.print("[");
+  Serial1.print("INFO[");
   Serial1.print(line_number);
   Serial1.println("]");
 }
