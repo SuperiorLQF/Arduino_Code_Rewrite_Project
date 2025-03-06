@@ -29,7 +29,7 @@ void writeByte(uint8_t val);
 void writeTwoByte(uint16_t val);
 
 void pin_driver(int pin_number,bool on);//to make every pin with unified interface
-Pin_information update_pin_information(int delay_ms,int duration_ms,int current_ms);
+Pin_information update_output_info(int delay_ms,int duration_ms,int current_ms);
 
 bool output_controller(int execute_ms);
 void sensor_input_reader(int execute_ms);

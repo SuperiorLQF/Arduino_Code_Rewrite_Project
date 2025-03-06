@@ -81,7 +81,7 @@ const int stim2pinMapping[16] {
 };
 
 uint8_t   enc_readings[SENSOR_BUF_MAXLEN];
-uint16_t  enc_times[SENSOR_BUF_MAXLEN];
+uint8_t  enc_times[10];
 int       enc_data_index  = 0;
 
 
@@ -94,7 +94,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  delay(1000);//wait for all params transmit into buffer//FIXME:to check if the receive buffer is overflow
+  delay(200);//wait for all params transmit into buffer//FIXME:to check if the receive buffer is overflow
   checkVars();
   int command = checkCMD();
   switch(command) {
@@ -168,7 +168,7 @@ void pin_driver(int pin_number,bool on){//to make every pin with unified interfa
 }
 
 
-Pin_information update_pin_information(int delay_ms,int duration_ms,int current_ms){
+Pin_information update_output_info(int delay_ms,int duration_ms,int current_ms){
   Pin_information pin_information_tmp;
   if(duration_ms>0){
     if(current_ms<delay_ms){
@@ -212,10 +212,10 @@ void startConditioning(void){
     trial_current_ms = millis();
     execute_ms = trial_current_ms - trial_start_ms;
 
-    //=== The main process begin ===
+    //#### The main process begin ####
     bool end_flag_1=output_controller(execute_ms);
     sensor_input_reader(execute_ms);
-    //=== The main process end ===
+    //#### The main process end ####
 
     end_flag = end_flag_1 && (execute_ms > param_campretime+param_camposttime); //
     
@@ -235,43 +235,41 @@ void startConditioning(void){
 }
 
 bool output_controller(int execute_ms){
-  bool exit_condition;
-  Pin_information pin_camera_info;
-  Pin_information pin_stim_info;
+  bool exit_flag;
+  Pin_information pin_cam_info; //Pin_information is a used-defined variable type (it has pin_status and pin_value)
+  Pin_information pin_stim_info;     // see main.h
   Pin_information pin_cs_info;
   Pin_information pin_cs2_info;
   Pin_information pin_cs3_info;
   Pin_information pin_us_info;  
-  //=======1.get pin information(status and value)=============
+  //======= 1.get pin output information (status and value) =============
   //                                      |delay                                  |duration                             |current_time
-  pin_camera_info = update_pin_information(0                                      ,param_campretime+param_camposttime   ,execute_ms);
-  pin_stim_info   = update_pin_information(param_campretime+param_stimdelay       ,param_stimdur                        ,execute_ms);
-  pin_cs_info     = update_pin_information(param_campretime                       ,param_csdur                          ,execute_ms);
-  pin_cs2_info    = update_pin_information(param_campretime+param_delay1          ,param_cs2dur                         ,execute_ms);
-  pin_cs3_info    = update_pin_information(param_campretime+param_delay2          ,param_cs3dur                         ,execute_ms);
-  pin_us_info     = update_pin_information(param_campretime+param_ISI             ,param_usdur                          ,execute_ms); 
+  pin_cam_info   = update_output_info(0                                      ,param_campretime+param_camposttime   ,execute_ms);
+  pin_stim_info  = update_output_info(param_campretime+param_stimdelay       ,param_stimdur                        ,execute_ms);
+  pin_cs_info    = update_output_info(param_campretime                       ,param_csdur                          ,execute_ms);
+  pin_cs2_info   = update_output_info(param_campretime+param_delay1          ,param_cs2dur                         ,execute_ms);
+  pin_cs3_info   = update_output_info(param_campretime+param_delay2          ,param_cs3dur                         ,execute_ms);
+  pin_us_info    = update_output_info(param_campretime+param_ISI             ,param_usdur                          ,execute_ms); 
 
-  bool pin_fv_value = pin_cs2_info.pin_value || pin_cs2_info.pin_value;
-  if(param_csch != ch_brightled){
-    pin_fv_value = pin_fv_value || pin_cs_info.pin_value; //if using cs(odor),then add it to pin_fv_value
-  }
-  //========2.drive the pin====================================
-  pin_driver(pin_camera                   ,pin_camera_info .pin_value);//camera
-  pin_driver(stim2pinMapping[param_stimch],pin_stim_info   .pin_value);//stim
-  pin_driver(stim2pinMapping[param_csch]  ,pin_cs_info     .pin_value);//cs
-  pin_driver(stim2pinMapping[param_cs2ch] ,pin_cs2_info    .pin_value);//cs2
-  pin_driver(stim2pinMapping[param_cs3ch] ,pin_cs3_info    .pin_value);//cs3
-  pin_driver(stim2pinMapping[param_usch]  ,pin_us_info     .pin_value);//us
-  pin_driver(pin_fv                       ,pin_fv_value              );//fv
+  bool pin_fv_value = pin_cs_info.pin_value || pin_cs2_info.pin_value || pin_cs3_info.pin_value;
 
-  //========3.caculate exit condition=========================
-  exit_condition =  (pin_camera_info  .pin_status == FINISH)  && 
+  //======== 2.drive the pin (on/off control by arduino built-in function, digitalWrite) ====================================
+  digitalWrite(pin_camera                   ,pin_cam_info    .pin_value);//camera
+  digitalWrite(stim2pinMapping[param_stimch],pin_stim_info   .pin_value);//stim
+  digitalWrite(stim2pinMapping[param_csch]  ,pin_cs_info     .pin_value);//cs
+  digitalWrite(stim2pinMapping[param_cs2ch] ,pin_cs2_info    .pin_value);//cs2
+  digitalWrite(stim2pinMapping[param_cs3ch] ,pin_cs3_info    .pin_value);//cs3
+  digitalWrite(stim2pinMapping[param_usch]  ,pin_us_info     .pin_value);//us
+  digitalWrite(pin_fv                       ,pin_fv_value              );//fv
+
+  //======== 3.caculate exit flag condition =========================
+  exit_flag =       (pin_cam_info     .pin_status == FINISH)  && 
                     (pin_stim_info    .pin_status == FINISH)  && 
                     (pin_cs_info      .pin_status == FINISH)  && 
                     (pin_cs2_info     .pin_status == FINISH)  && 
                     (pin_cs3_info     .pin_status == FINISH)  && 
                     (pin_us_info      .pin_status == FINISH);
-  return exit_condition;
+  return exit_flag;
 }
 
 void sensor_input_reader(int execute_ms){
@@ -284,7 +282,10 @@ void sensor_input_reader(int execute_ms){
   2              |    0       |     1     |
   3              |    1       |     1     |
   */
-  enc_times[enc_data_index] = (uint16_t)execute_ms;
+ if (enc_data_index<5) {
+  //enc_times[enc_data_index] = (uint16_t)execute_ms;
+  enc_times[enc_data_index] = execute_ms;
+}
   enc_data_index++ ;
 }
 
@@ -487,8 +488,8 @@ void sendEncoderData(void) {
     }
 
     Serial.write(TIME_L);
-    for (int i=0; i<SENSOR_BUF_SENDLEN; i++) {//FIXME:change param_encodernumreadings to SENSOR_BUF_SENDLEN
-        writeTwoByte(enc_times[i]);
+    for (int i=0; i<4; i++) {//FIXME:change param_encodernumreadings to SENSOR_BUF_SENDLEN
+        writeByte(enc_times[i]);
     }
     RAISE_HINT(__LINE__);
 }
