@@ -243,7 +243,7 @@ bool output_controller(int execute_ms){
   Pin_information pin_cs3_info;
   Pin_information pin_us_info;  
   //======= 1.get pin output information (status and value) =============
-  //                                      |delay                                  |duration                             |current_time
+  //                                 |delay                                  |duration                             |current_time
   pin_cam_info   = update_output_info(0                                      ,param_campretime+param_camposttime   ,execute_ms);
   pin_stim_info  = update_output_info(param_campretime+param_stimdelay       ,param_stimdur                        ,execute_ms);
   pin_cs_info    = update_output_info(param_campretime                       ,param_csdur                          ,execute_ms);
