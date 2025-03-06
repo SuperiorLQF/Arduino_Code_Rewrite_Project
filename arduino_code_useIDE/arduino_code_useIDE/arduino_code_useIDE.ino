@@ -163,88 +163,34 @@ void enc_reset(void){//enc onlu setup in conditioning lab
 
 
 //================pin driver function [begin]==================//
-void pin_driver(int pin_number,bool on){//to make every pin with unified interface
-  if(pin_number==pin_camera){
-    if(on){
-      digitalWrite(pin_number,HIGH);
-    }
-    else{
-      digitalWrite(pin_number,LOW);
-    }
-  }
-  else{
-    RAISE_WARNING(__LINE__);//the pin_number 's action has not specified yet,we need to add this case    
-  }
+void pin_driver(int pin_number,bool on){//to make every pin with unified interface,you can add if-conditions if some pins have different or specific relization
+  digitalWrite(pin_number,on);//on == true:open;   on ==flase:close
 }
 
-void channel_driver(int channel_number,bool on){//to make every channel with unified interface
-  int target_pin = stim2pinMapping[channel_number];
-  if(channel_number == param_csch){
-    //======CS=========
-    if(channel_number==ch_brightled){//CS:ch_brightled
-      if(on){
-        digitalWrite(target_pin,HIGH);
-      }
-      else{
-        digitalWrite(target_pin,LOW);
-      }
-    }
-    else{
-      if(on){
-        digitalWrite(pin_fv, HIGH);
-        digitalWrite(target_pin,HIGH);
-      }
-      else{
-        digitalWrite(pin_fv, LOW);
-        digitalWrite(target_pin,LOW);
-      }
-    }
-  }
-  else if(channel_number == param_cs2ch || channel_number == param_cs3ch){
-    //====CS2,3==========
-    if(on){
-      digitalWrite(pin_fv, HIGH);
-      digitalWrite(target_pin,HIGH);
-    }
-    else{
-      digitalWrite(pin_fv, LOW);
-      digitalWrite(target_pin,LOW);
-    }
-  }
-  else if(channel_number == param_stimch || channel_number == param_usch){
-    //======stim,US=======
-    //US:ch_solenoid,ch_puffer_eye,ch_puffer_other
-    if(on){
-      digitalWrite(target_pin,HIGH);
-    }
-    else{
-      digitalWrite(target_pin,LOW);
-    }
-  }
-  else {
-    RAISE_WARNING(__LINE__);//the channel_number 's action has not specified yet,we need to add this case
-  }
-}
 
-bool digital_auto_action(int delay_ms,int duration_ms,Pin_Chan_Operation IOdriver,int PinorChan_number,int current_ms){
+Pin_information update_pin_information(int delay_ms,int duration_ms,int current_ms){
+  Pin_information pin_information_tmp;
   if(duration_ms>0){
     if(current_ms<delay_ms){
-      IOdriver(PinorChan_number,/*false means pin off*/false);
-      return false;
+      pin_information_tmp.pin_status = DELAY;
+      pin_information_tmp.pin_value  = 0;
     }
     else if(current_ms<delay_ms+duration_ms){
-      IOdriver(PinorChan_number,/*true means pin on*/true);
-      return false;
+      pin_information_tmp.pin_status = ON;
+      pin_information_tmp.pin_value  = 1;
     }
     else{
-      IOdriver(PinorChan_number,/*false means pin off*/false);
-      return true;
+      pin_information_tmp.pin_status = FINISH;
+      pin_information_tmp.pin_value  = 0;
     }
   }
   else{//which means this pin or channel is unused
-    return true;
+    pin_information_tmp.pin_status = DELAY;
+    pin_information_tmp.pin_value  = 0;
   }
-};
+  return pin_information_tmp;
+
+}
 //================pin driver function [end]======================//
 
 
@@ -290,21 +236,41 @@ void startConditioning(void){
 
 bool output_controller(int execute_ms){
   bool exit_condition;
-  bool camera_status;
-  bool stim_status;
-  bool cs_status;
-  bool cs2_status;
-  bool cs3_status;
-  bool us_status;  
-  //---------------------------------|delay                                 |duration                             |IOdriver         |Pin_Chan_number----------------//
-  camera_status = digital_auto_action(0                                     ,param_campretime+param_camposttime   ,pin_driver       ,pin_camera       ,execute_ms );//
-  stim_status   = digital_auto_action(param_campretime+param_stimdelay      ,param_stimdur                        ,channel_driver   ,param_stimch     ,execute_ms );//
-  cs_status     = digital_auto_action(param_campretime                      ,param_csdur                          ,channel_driver   ,param_csch       ,execute_ms );//
-  cs2_status    = digital_auto_action(param_campretime+param_delay1         ,param_cs2dur                         ,channel_driver   ,param_cs2ch      ,execute_ms );//
-  cs3_status    = digital_auto_action(param_campretime+param_delay2         ,param_cs3dur                         ,channel_driver   ,param_cs3ch      ,execute_ms );//
-  us_status     = digital_auto_action(param_campretime+param_ISI            ,param_usdur                          ,channel_driver   ,param_usch       ,execute_ms );//
-  
-  exit_condition = camera_status && stim_status && cs_status && cs2_status && cs3_status && us_status;
+  Pin_information pin_camera_info;
+  Pin_information pin_stim_info;
+  Pin_information pin_cs_info;
+  Pin_information pin_cs2_info;
+  Pin_information pin_cs3_info;
+  Pin_information pin_us_info;  
+  //=======1.get pin information(status and value)=============
+  //                                      |delay                                  |duration                             |current_time
+  pin_camera_info = update_pin_information(0                                      ,param_campretime+param_camposttime   ,execute_ms);
+  pin_stim_info   = update_pin_information(param_campretime+param_stimdelay       ,param_stimdur                        ,execute_ms);
+  pin_cs_info     = update_pin_information(param_campretime                       ,param_csdur                          ,execute_ms);
+  pin_cs2_info    = update_pin_information(param_campretime+param_delay1          ,param_cs2dur                         ,execute_ms);
+  pin_cs3_info    = update_pin_information(param_campretime+param_delay2          ,param_cs3dur                         ,execute_ms);
+  pin_us_info     = update_pin_information(param_campretime+param_ISI             ,param_usdur                          ,execute_ms); 
+
+  bool pin_fv_value = pin_cs2_info.pin_value || pin_cs2_info.pin_value;
+  if(param_csch != ch_brightled){
+    pin_fv_value = pin_fv_value || pin_cs_info.pin_value; //if using cs(odor),then add it to pin_fv_value
+  }
+  //========2.drive the pin====================================
+  pin_driver(pin_camera                   ,pin_camera_info .pin_value);//camera
+  pin_driver(stim2pinMapping[param_stimch],pin_stim_info   .pin_value);//stim
+  pin_driver(stim2pinMapping[param_csch]  ,pin_cs_info     .pin_value);//cs
+  pin_driver(stim2pinMapping[param_cs2ch] ,pin_cs2_info    .pin_value);//cs2
+  pin_driver(stim2pinMapping[param_cs3ch] ,pin_cs3_info    .pin_value);//cs3
+  pin_driver(stim2pinMapping[param_usch]  ,pin_us_info     .pin_value);//us
+  pin_driver(pin_fv                       ,pin_fv_value              );//fv
+
+  //========3.caculate exit condition=========================
+  exit_condition =  (pin_camera_info  .pin_status == FINISH)  && 
+                    (pin_stim_info    .pin_status == FINISH)  && 
+                    (pin_cs_info      .pin_status == FINISH)  && 
+                    (pin_cs2_info     .pin_status == FINISH)  && 
+                    (pin_cs3_info     .pin_status == FINISH)  && 
+                    (pin_us_info      .pin_status == FINISH);
   return exit_condition;
 }
 
