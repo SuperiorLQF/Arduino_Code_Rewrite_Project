@@ -94,48 +94,16 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  delay(200);//wait for all params transmit into buffer//FIXME:to check if the receive buffer is overflow
-  checkVars();
-  int command = checkCMD();
-  switch(command) {
-      case 1:
-          startConditioning();
-          break;
-      case 2: 
-          sendEncoderData();
-          break;
-      case 3:
-          //elecOn(0);
-          break;
-      case 4:
-          //elecOff(0);
-          break;
-      case 5: 
-          //laserOn(0);
-          break;
-      case 6:
-          //laserOff(0);
-          break;
-      case 7:
-          //toneOn(DAC_PIN);
-          break;
-      case 8:
-          //toneOff(DAC_PIN);
-          break;
-      case 9:
-          //startLeverTask();  // previously "startTrial()"
-          break;
-      default:
-          break;
-  }
-
+  check_matlab_message();
 }
+
 //================setup function [begin]========================//
 void setup_serial(void){
   Serial.begin(115200);
   Serial1.begin(115200);
   while(!Serial && !Serial1){ ;}//wait for Serial ready
 }
+
 void setup_pins(void){
   //setup all channel pins
   for(int i=0;i<16;i++){
@@ -184,13 +152,13 @@ Pin_information update_output_info(int delay_ms,int duration_ms,int current_ms){
       pin_information_tmp.pin_value  = 0;
     }
   }
-  else{//which means this pin or channel is unused
-    pin_information_tmp.pin_status = DELAY;
+  else{ //which means this pin or channel is unused
+    pin_information_tmp.pin_status = FINISH;
     pin_information_tmp.pin_value  = 0;
   }
   return pin_information_tmp;
-
 }
+
 //================pin driver function [end]======================//
 
 
@@ -201,10 +169,10 @@ void startConditioning(void){
   unsigned long trial_start_ms,trial_current_ms;
   int execute_ms;
   bool end_flag = false;
-  //Preprocess code begin
-  enc_reset();  // set enc pins as input mode, and reset the data buffer
-  //Preprocess code end
+
+  // --- initialization ----
   trial_start_ms = millis();
+  enc_reset();  // set enc pins as input mode, and reset the data buffer
 
   //================Conditioning LOOP [begin] =========================//
   while(!end_flag){//a trial is divided into 1ms slots
@@ -215,10 +183,10 @@ void startConditioning(void){
     //#### The main process begin ####
     bool end_flag_1=output_controller(execute_ms);
     sensor_input_reader(execute_ms);
-    //#### The main process end ####
 
     end_flag = end_flag_1 && (execute_ms > param_campretime+param_camposttime); //
-    
+    //#### The main process end ####
+
     // LOOP timer begin (1 ms per loop)
     slot_intermediate_us = micros();    
     execute_us =  slot_intermediate_us - slot_start_us;
@@ -291,195 +259,226 @@ void sensor_input_reader(int execute_ms){
 
 //================conditioning function [end]=====================//
 
+
+
+
 //================communicate function (from matlab) [begin]=================//
-void checkVars(void) {
-  char param_block[3];
+//All data(params/command) has the same 4Byte structure to simplify communication with MATLAB
+//2Bytes header + 2Bytes body, header=1 implify body is command
+void check_matlab_message(void) {
+  char param_block[4];
   int header;
   int value;
-  // Matlab sends data in 3 byte packets: first byte is header telling which variable to update
-  // next two bytes are the new variable data as 16 bit int 
-  // Header is coded numerically (0, 1, and 2 are reserved for special functions so don't use them to code variable identities)
-  while (Serial.available() >=3 ) {
-    Serial.readBytes(param_block,3);
-    header = param_block[0];
-    value = param_block[1] | param_block[2] << 8;
-    Serial1.print("header:");
-    Serial1.println(header);
-    Serial1.print("value:");   
-    Serial1.println(value); 
-    // If you add a new case don't forget to put a break statement after it; c-style switches run through
-    switch (header) {
-      case 3:
-        param_campretime = value;
-        break;
-      case 4:
-        param_csch = value;
-        break;
-      case 5:
-        param_csdur = value;
-        break;
-      case 6:
-        param_usdur = value;
-        break;
-      case 7:
-        param_ISI = value;
-        break;
-      case 8:
-        //param_tonefreq = value;
-        break;
-      case 9:
-        //param_camposttime = value;
-        break;
-      case 10:
-        param_usch = value;
-        break;
-      case 11:
-        param_stimdelay = value;
-        break;
-      case 12:
-        param_stimdur = value;
-        break;
-      case 13:
-        //param_laserpower = value;
-        break;
-      case 45:
-        //param_csintensity = value; Alvaro 05/09/19 from sheiney committed on Jan 18, 2017
-        // setDiPoValue(param_csintensity);
-        // The Matlab code stores intensity values up to 256 because it's nicer to deal with   Alvaro 05/09/19 sheiney committed on Jan 18, 2017
-        // multiples of 2 but we can only pass at most 255 so we have to correct that here.  Alvaro 05/09/19 sheiney committed on Jan 18, 2017
-        // Zero is a special case because when the user specifies 0 they want it to mean "off"  Alvaro 05/09/19 sheiney committed on Jan 18, 2017
-        //param_csintensity = value==0 ? value : value-1; //Alvaro
-        break;
-      case 15:
-        //param_laserperiod = value;
-        break;
-      case 16:
-        //param_lasernumpulses = value;
-        break;
-      // case 20:
-      //   param_csperiod = value;
-      //   break;
-      // case 21:
-      //   param_csrepeats = value;
-      //   break;
-      case 22:
-        //param_rampoffdur = value; //ALvaro 10/19/18
-        break;
-      case 24:
-        //param_elecPeriod = value;
-        break;
-      case 25:
-        //param_elecVoltage = value;
-        break;
-      case 26:
-        //param_elecRepeats = value;
-        break;
-      case 27:
-        //param_laserVoltage = value;
-      case 28:
-        //param_laserPeriod = value;
-        break;
-      case 29: 
-        //param_laserRepeats = value;
-        break;
-      case 30: 
-        //param_toneamp = value;
-        break; 
-      case 31: 
-        //param_elecFrequency = value;
-        break; 
-      case 32: 
-        //param_laserFrequency = value;
-        break;
-      case 33: 
-        param_stimch = value;
-        break;
-      case 34:
-        //reversePolarity = value;
-        break;
-      case 35:
-        //event1_pin= value;
-        break;
-      case 36:
-        //event2_pin= value;
-        break;
-      case 37:
-        //event3_pin= value;
-        break;
-      case 38:
-        //trialnums = value;
-        break;
-      case 39:
-        //Interval1 = value;
-        break;
-      case 40:
-        //Interval2 = value;
-        break;
-      case 41:
-        //ITI = value;
-        break;
-      case 42:
-        //pre_timewindows = value;
-        break;
-      case 43:
-        //post_timewindows = value;
-        break;
-      case 44:
-        //rewardDuration = value;
-        break;
-      case 46:
-        //current_brightness = value;
-        break;
-      case 47:
-        param_cs2ch = value;
-        break;
-      case 48:
-        param_cs2dur = value;
-        break;
-      case 49:
-        param_cs3ch = value;
-        break;
-      case 50:
-        param_cs3dur = value;
-        break;
-      case 51:
-        //param_delay1 = value;
-        break;
-      case 52:
-        //param_delay2 = value;
-        break;
-      case 54:
-        //pump_dur = value;
-        break;
+  int command;
+  while (Serial.available() > 0 ) {
+    //wait for receiving 4Byte data
+    delay(10);
+    
+    //receive the whole 4Byte data
+    if (Serial.available() >= 4) {
+      Serial.readBytes(param_block,4);
+      header = param_block[0] | param_block[1] << 8;
+      value = param_block[2] | param_block[3] << 8;
+      Serial1.print("header:");
+      Serial1.println(header);
+      Serial1.print("value:");   
+      Serial1.println(value); 
+      // If you add a new case don't forget to put a break statement after it; c-style switches run through
+      // TODO:And we can check if the header is illegal
+      switch (header) {
+
+        case 1: // special header for command
+          command = value;
+          command_exe(command);
+          break;
+  
+        case 3:
+          param_campretime = value;
+          break;
+        case 4:
+          param_csch = value;
+          break;
+        case 5:
+          param_csdur = value;
+          break;
+        case 6:
+          param_usdur = value;
+          break;
+        case 7:
+          param_ISI = value;
+          break;
+        case 8:
+          //param_tonefreq = value;
+          break;
+        case 9:
+          param_camposttime = value;
+          break;
+        case 10:
+          param_usch = value;
+          break;
+        case 11:
+          param_stimdelay = value;
+          break;
+        case 12:
+          param_stimdur = value;
+          break;
+        case 13:
+          //param_laserpower = value;
+          break;
+        case 15:
+          //param_laserperiod = value;
+          break;
+        case 16:
+          //param_lasernumpulses = value;
+          break;
+        // case 20:
+        //   param_csperiod = value;
+        //   break;
+        // case 21:
+        //   param_csrepeats = value;
+        //   break;
+        case 22:
+          //param_rampoffdur = value; //ALvaro 10/19/18
+          break;
+        case 24:
+          //param_elecPeriod = value;
+          break;
+        case 25:
+          //param_elecVoltage = value;
+          break;
+        case 26:
+          //param_elecRepeats = value;
+          break;
+        case 27:
+          //param_laserVoltage = value;
+        case 28:
+          //param_laserPeriod = value;
+          break;
+        case 29: 
+          //param_laserRepeats = value;
+          break;
+        case 30: 
+          //param_toneamp = value;
+          break; 
+        case 31: 
+          //param_elecFrequency = value;
+          break; 
+        case 32: 
+          //param_laserFrequency = value;
+          break;
+        case 33: 
+          param_stimch = value;
+          break;
+        case 34:
+          //reversePolarity = value;
+          break;
+        case 35:
+          //event1_pin= value;
+          break;
+        case 36:
+          //event2_pin= value;
+          break;
+        case 37:
+          //event3_pin= value;
+          break;
+        case 38:
+          //trialnums = value;
+          break;
+        case 39:
+          //Interval1 = value;
+          break;
+        case 40:
+          //Interval2 = value;
+          break;
+        case 41:
+          //ITI = value;
+          break;
+        case 42:
+          //pre_timewindows = value;
+          break;
+        case 43:
+          //post_timewindows = value;
+          break;
+        case 44:
+          //rewardDuration = value;
+          break;
+        case 45:
+          break;
+        case 46:
+          //current_brightness = value;
+          break;
+        case 47:
+          param_cs2ch = value;
+          break;
+        case 48:
+          param_cs2dur = value;
+          break;
+        case 49:
+          param_cs3ch = value;
+          break;
+        case 50:
+          param_cs3dur = value;
+          break;
+        case 51:
+          //param_delay1 = value;
+          break;
+        case 52:
+          //param_delay2 = value;
+          break;
+        case 54:
+          //pump_dur = value;
+          break;
+      }
     }
-    // We might be able to remove this delay if Matlab sends the parameters fast enough to buffer
-    delay(10); // Delay enough to allow next 3 bytes into buffer (24 bits/115200 bps = ~200 us, so delay 1 ms to be safe).
+    else {
+      //illegal data format other than 4Bytes
+      RAISE_ERROR(__LINE__);
+      Serial1.println(Serial.available());
+      Serial.flush();//drop illegal data
+      return;//return to main_loop
+    }
   } 
+  RAISE_HINT(__LINE__);//if illegal case don't happen, will execute this 
 }
 
-int checkCMD(void){
-  int times_retry=0;
-  for(;;){
-    if (Serial.available() > 0) {
-
-        int command = Serial.read(); 
-
-        Serial1.print("get command:");
+void command_exe(int command){
+  Serial1.print("get command:");
         Serial1.println(command);
 
-        return command;
-    }
-    else{
-        if(times_retry>100){
-          RAISE_WARNING(__LINE__);
-          Serial1.println("Fail to get command");
-          times_retry = 0;
-        }
-        delay(10);
-        times_retry++;
-    }
+        switch(command) {
+      case 1:
+          startConditioning();
+          break;
+      case 2: 
+          sendEncoderData();
+          break;
+      case 3:
+          //elecOn(0);
+          break;
+      case 4:
+          //elecOff(0);
+          break;
+      case 5: 
+          //laserOn(0);
+          break;
+      case 6:
+          //laserOff(0);
+          break;
+      case 7:
+          //toneOn(DAC_PIN);
+          break;
+      case 8:
+          //toneOff(DAC_PIN);
+          break;
+      case 9:
+          //startLeverTask();  // previously "startTrial()"
+          break;
+      default:
+          break;
   }
+  RAISE_ERROR(__LINE__);
 }
+
 
 void sendEncoderData(void) {
     Serial.write(ENCODER_L);

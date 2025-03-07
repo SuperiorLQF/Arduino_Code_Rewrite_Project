@@ -36,10 +36,8 @@ void sensor_input_reader(int execute_ms);
 void startConditioning(void);
 void sendEncoderData(void);
 
-void checkVars(void);
-int  checkCMD(void);
-
-
+void check_matlab_message(void);
+void command_exe(int);
 
 
 #endif
