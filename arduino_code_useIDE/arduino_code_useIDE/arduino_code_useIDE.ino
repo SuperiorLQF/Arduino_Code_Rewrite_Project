@@ -1,4 +1,5 @@
 #include "init.h"
+#include <DueTimer.h>
 // communicating headers
 const uint8_t ENCODER_L = 100;
 const uint8_t TIME_L = 101;
@@ -28,6 +29,13 @@ int param_usdur       = 20;
 int param_ISI         = 200;
 int param_stimdelay   = 0; 
 int param_stimdur     = 500;
+int param_toneFrequency   = 10;//10kHz
+int param_elecFrequency   = 300;//300Hz
+int param_elecDur         = 300;//300us
+int param_elecAmp         = 1000;//1000mV
+int param_laserFrequency  = 300;//300Hz
+int param_laserDur        = 300;//300us
+int param_laserAmp        = 1000;//1000mV
 
 int param_csch    = ch_brightled;
 int param_cs2ch   = ch_odor2;
@@ -85,10 +93,14 @@ uint8_t   sensor_times[10];
 int       sensor_data_index  = 0;
 int       sensor_buf_sendlen = 1000;
 
+int pin_value_memory[70];//-1:initial  0:off 1:on
+
 void setup() {  // put your initialization code here, to run once:
   setup_serial();
   setup_pins();
+  randomSeed(micros());//use a random value(like time or adc value)as a random seed
   delay(10);
+
   //add communication code test for debug here
 }
 
@@ -106,16 +118,18 @@ void setup_serial(void){
 }
 
 void setup_pins(void){
-  //setup all channel pins
-  for(int i=0;i<16;i++){
-    if(stim2pinMapping[i] != 0){
-      pinMode(stim2pinMapping[i],OUTPUT);
-      digitalWrite(stim2pinMapping[i],LOW);
-    }
+  //setup pin value memory
+  for(int i=0;i<70;i++){
+    pin_value_memory[i] = -1;
   }
+  //setup all channel pins
+  // for(int i=0;i<16;i++){
+  //   if(stim2pinMapping[i] != 0){// normal digital pins
+  //     pin_driver(stim2pinMapping[i],0);
+  //   }
+  // }
   //setup camera
-  pinMode(pin_camera,OUTPUT);
-  digitalWrite(pin_camera,0);
+  pin_driver(pin_camera,0);
 
   Serial1.println("device set up OK");
 }
@@ -134,10 +148,76 @@ void sensor_reset(void){//enc only setup in conditioning lab
 
 
 //================pin driver function [begin]==================//
-void pin_driver(int pin_number,bool on){ // pin 0 is used for serial communication. DO NOT ditialWrite(0, on).
-//to make every pin with unified interface,you can add if-conditions if some pins have different or unique drive operation
-  if (pin_number != 0 && pin_number <54){//from 55 is analog pin
-    digitalWrite(pin_number,on);//on == true:open;   on ==flase:close  
+void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communication. DO NOT driver it other than use Serial
+  //only act when [1.first init]  OR [2.pin value change] ,don't act when value is not change
+  int   period_us;
+  bool  setup_flag = (pin_value_memory[pin_number] == -1);//if 1 ,we should set pinMode before drive
+  bool  value_change_flag = (pin_value_memory[pin_number] != value);//if 1,the value change,we should drive it
+
+  if(pin_number == 0 || pin_number == 1){
+    RAISE_ERROR(__LINE__);// pin 0,1 is used for serial communication. DO NOT driver it
+    return;
+  }
+
+  if(setup_flag || value_change_flag){
+    pin_value_memory[pin_number] = value;//update value memory
+
+    //++++digital pin++++++++
+    if (pin_number <54){
+      if(setup_flag){
+        pinMode(pin_number,OUTPUT);//setup 
+      }
+      else{
+        digitalWrite(pin_number,value);
+      }
+    }    
+
+    //++++++tone+++++++++++++
+    else if(pin_number == stim2pinMapping[ch_tone]){
+      if(setup_flag){
+        analogWriteResolution(12);//setup 
+        analogWrite(pin_number, 0);
+      }
+      else if(value!=0){
+        Timer1.attachInterrupt(tone_TIMER_HANDLER);//call this function every period_us;
+        period_us = 1000 / param_toneFrequency;
+        if(period_us > 9){//because of hardware limitation,DAC Max Freq can not bigger than 100kHz
+          Timer1.start(period_us);//us
+        }else{
+          RAISE_ERROR(__LINE__);//ERROR:param_tone Frequency too HIGH!
+        }
+      }
+      else{
+        Timer1.stop();
+        analogWrite(pin_number, 0);
+      }
+    }
+
+    //++++++++elec++++++++++++
+    else if(pin_number == stim2pinMapping[ch_elec]){
+      ;
+      // if(on){
+      //   Timer2.attachInterrupt(elec_TIMER_HANDLER);//use cappital letter to distinguish <timer callback function>
+      //   Timer2.start();
+      // }
+      // else{
+      //   Timer2.stop();
+      // }
+    }
+    
+    //laser
+    else if(pin_number == stim2pinMapping[ch_laser]){
+      ;
+      // if(on){
+      //   Timer3.attachInterrupt(laser_TIMER_HANDLER);//use cappital letter to distinguish <timer callback function>
+      //   Timer3.start();
+      // }
+      // else{
+      //   Timer3.stop();
+      // }
+    }
+
+
   }
 }
 
@@ -278,17 +358,18 @@ void sensor_input_reader(int execute_ms){
 //All data(params/command) has the same 4Byte structure to simplify communication with MATLAB
 //2Bytes header + 2Bytes body, header=1 implify body is command
 void check_matlab_message(void) {
-  char param_block[4];
-  int header;
-  int value;
+  uint8_t param_block[4];
+  uint8_t header;
+  uint8_t value;
   int available_number;
   int command;
   while (Serial.available() > 0 ) {
     //wait for receiving 4Byte data
-    delay(2);  //one byte cost 0.1ms at 115200 baudrate
+    delay(10);  //one byte cost 0.1ms at 115200 baudrate
     
     //receive the whole 4Byte data
     if (Serial.available() >= 4) {
+      
       Serial.readBytes(param_block,4);
       header = param_block[0] | param_block[1] << 8;
       value = param_block[2] | param_block[3] << 8;
@@ -321,7 +402,7 @@ void check_matlab_message(void) {
           param_ISI = value;
           break;
         case 8:
-          //param_tonefreq = value;
+          param_toneFrequency = value;//kHz
           break;
         case 9:
           param_camposttime = value;
@@ -355,30 +436,30 @@ void check_matlab_message(void) {
           //param_rampoffdur = value; //ALvaro 10/19/18
           break;
         case 24:
-          //param_elecPeriod = value;
+          param_elecDur = value;//us
           break;
         case 25:
-          //param_elecVoltage = value;
+          param_elecAmp = value;//mv
           break;
         case 26:
           //param_elecRepeats = value;
           break;
         case 27:
-          //param_laserVoltage = value;
+          param_laserAmp = value;//mv
         case 28:
-          //param_laserPeriod = value;
+          param_laserDur = value;//us
           break;
         case 29: 
           //param_laserRepeats = value;
           break;
         case 30: 
-          //param_toneamp = value;
+          //param_toneAmp = value;//mv   NOTE:We use random wave so this is not use anymore
           break; 
         case 31: 
-          //param_elecFrequency = value;
+          param_elecFrequency = value;//Hz
           break; 
         case 32: 
-          //param_laserFrequency = value;
+          param_laserFrequency = value;//Hz
           break;
         case 33: 
           param_stimch = value;
@@ -450,7 +531,7 @@ void check_matlab_message(void) {
     else {
       //illegal data format other than 4Bytes
       available_number = Serial.available();
-      Serial1.print(available_number);
+      Serial1.println(available_number);
       //for(int j=0;j<available_number;j++){
       //  Serial.read();
       //}
@@ -542,4 +623,11 @@ void RAISE_HINT(int line_number){
 }
 //================print info function  [end]====================//
 
+//================TIMER CALLBACK function[begin]================//
+void tone_TIMER_HANDLER(void){
+  int random_value = random(0, 4096);
+  analogWrite(stim2pinMapping[ch_tone],random_value);//
+}
+
+//================TIMER CALLBACK function[end]==================//
 

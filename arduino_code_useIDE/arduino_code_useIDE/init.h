@@ -8,12 +8,14 @@
 typedef void (*Pin_Chan_Operation)(int PinorChan,bool on);//Pin_Chan_Operation pointer that stands for  channel_driver or pin_driver
 
 typedef enum {
+  FRESH,
   DELAY,
   ON,
   FINISH
 } Pin_status;
 
 typedef struct{
+  Pin_status pin_laststatus;//stored last 1ms status
   Pin_status pin_status;//pin_status:DELAY->ON->FINISH
   bool pin_value;//pin_value 1 or 0 (ON is 1,other is 0)
 }Pin_information;
@@ -29,7 +31,7 @@ void RAISE_HINT(int);
 void writeByte(uint8_t val);
 void writeTwoByte(uint16_t val);
 
-void pin_driver(int pin_number,bool on);//to make every pin with unified interface
+void pin_driver(int pin_number,int value);//to make every pin with unified interface
 Pin_information update_output_info(int delay_ms,int duration_ms,int current_ms);
 
 bool output_controller(int execute_ms);
@@ -40,7 +42,7 @@ void sendSensorData(void);
 void check_matlab_message(void);
 void command_exe(int);
 
-
+void tone_TIMER_HANDLER(void);
 
 
 #endif
