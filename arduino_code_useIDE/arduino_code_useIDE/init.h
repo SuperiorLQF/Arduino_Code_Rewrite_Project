@@ -14,6 +14,15 @@ typedef enum {
   FINISH
 } Pin_status;
 
+typedef enum {
+  NP_N,
+  NP_P,
+  NP_LOW,
+  PN_P,
+  PN_N,
+  PN_LOW,
+} Elec_status;
+
 typedef struct{
   Pin_status pin_laststatus;//stored last 1ms status
   Pin_status pin_status;//pin_status:DELAY->ON->FINISH
@@ -21,6 +30,7 @@ typedef struct{
 }Pin_information;
 
 void setup_serial(void);
+void setup_SPI(void);
 void setup_pins(void);
 void sensor_reset(void);
 
@@ -43,6 +53,11 @@ void check_matlab_message(void);
 void command_exe(int);
 
 void tone_TIMER_HANDLER(void);
+void laser_TIMER_HANDLER(void);
+
+void dac8563_init(void);
+void dac8563_output(int chan_num,uint16_t data);//chan_num 0:A  1:B
+void writeDAC(uint8_t cmd,uint16_t data);
 
 
 #endif
