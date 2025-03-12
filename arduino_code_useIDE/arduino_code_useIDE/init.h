@@ -62,5 +62,7 @@ void dac8563_init(void);
 void dac8563_output(int chan_num,uint16_t data);//chan_num 0:A  1:B
 void writeDAC(uint8_t cmd,uint16_t data);
 
-void timer_init(int timer_number);
+void timer_start(int timer_number);
+void timer_reset(int timer_number,int counter_number_set);
+void timer_stop(int timer_number);
 #endif
