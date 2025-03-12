@@ -2,8 +2,11 @@
 #define MAIN_H_CODE
 
 #include <Arduino.h>
+#include <sam.h>
 
 #define SENSOR_BUF_MAXLEN 5000
+
+
 
 typedef void (*Pin_Chan_Operation)(int PinorChan,bool on);//Pin_Chan_Operation pointer that stands for  channel_driver or pin_driver
 
@@ -53,11 +56,11 @@ void check_matlab_message(void);
 void command_exe(int);
 
 void tone_TIMER_HANDLER(void);
-void laser_TIMER_HANDLER(void);
+//void laser_TIMER_HANDLER(void);
 
 void dac8563_init(void);
 void dac8563_output(int chan_num,uint16_t data);//chan_num 0:A  1:B
 void writeDAC(uint8_t cmd,uint16_t data);
 
-
+void timer_init(int timer_number);
 #endif

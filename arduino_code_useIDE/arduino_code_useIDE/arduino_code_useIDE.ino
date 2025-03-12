@@ -1,6 +1,7 @@
 #include "init.h"
-#include <DueTimer.h>
+//#include <DueTimer.h>
 #include <SPI.h>
+#include <sam.h>
 // communicating headers
 const uint8_t ENCODER_L = 100;
 const uint8_t TIME_L = 101;
@@ -116,6 +117,9 @@ int       elec_duration_us;//param_laserDur;
 
 int pin_value_memory[70];//-1:initial  0:off 1:on
 
+bool debug_first_enter_interrupt = false;
+int  debug_us_a,debug_us_b,debug_us_c,debug_us_d,debug_us_e;
+int  laser_counter_number_set_A,laser_counter_number_set_B;
 void setup() {  // put your initialization code here, to run once:
   setup_serial();
   setup_SPI();
@@ -142,7 +146,7 @@ void setup_serial(void){
 }
 void setup_SPI(void){
   SPI.begin();
-  SPI.beginTransaction(SPISettings(10000000,MSBFIRST,SPI_MODE1));//SPI_speed:10MHz max:50M *Note:when debugging,use 2MHz because logic analyzer cannot capture too fast signal
+  SPI.beginTransaction(SPISettings(50000000,MSBFIRST,SPI_MODE1));//SPI_speed:10MHz max:50M *Note:when debugging,use 2MHz because logic analyzer cannot capture too fast signal
 }
 void setup_pins(void){
   //setup pin value memory
@@ -155,6 +159,10 @@ void setup_pins(void){
       pin_driver(stim2pinMapping[i],0);
     }
   }
+  //setup dac pins
+  pin_driver(dac8563_sync_pin,1);
+  pin_driver(dac8563_ldac_pin,0);
+  pin_driver(dac8563_clr_pin ,1);
   //setup camera
   pin_driver(pin_camera,0);
 
@@ -200,55 +208,55 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
 
     //++++++tone+++++++++++++
     else if(pin_number == stim2pinMapping[ch_tone]){
-      if(setup_flag){
-        analogWriteResolution(12);//setup 
-        analogWrite(pin_number, 0);
-      }
-      else if(value!=0){
-        Timer1.attachInterrupt(tone_TIMER_HANDLER);//call this function every period_us;
-        period_us = 1000 / param_toneFrequency;
-        if(period_us > 9){//because of hardware limitation,DAC Max Freq  bigger than 100kHz
-          Timer1.start(period_us);//us
-        }else{
-          RAISE_ERROR(__LINE__);//ERROR:param_tone Frequency too HIGH!
-        }
-      }
-      else{
-        Timer1.stop();
-        analogWrite(pin_number, 0);
-        //FIXME:we can turn to digital mode to set value to 0 V
-      }
+      // if(setup_flag){
+      //   analogWriteResolution(12);//setup 
+      //   analogWrite(pin_number, 0);
+      // }
+      // else if(value!=0){
+      //   Timer1.attachInterrupt(tone_TIMER_HANDLER);//call this function every period_us;
+      //   period_us = 1000 / param_toneFrequency;
+      //   if(period_us > 9){//because of hardware limitation,DAC Max Freq  bigger than 100kHz
+      //     Timer1.start(period_us);//us
+      //   }else{
+      //     RAISE_ERROR(__LINE__);//ERROR:param_tone Frequency too HIGH!
+      //   }
+      // }
+      // else{
+      //   Timer1.stop();
+      //   analogWrite(pin_number, 0);
+      //   //FIXME:we can turn to digital mode to set value to 0 V
+      // }
     }
 
     //++++++++elec++++++++++++
     else if(pin_number == stim2pinMapping[ch_elec]){//Timer2 and channelA //!!!FIXME:change 1 to 0(port A)
-      if(setup_flag){
-        dac8563_output(0,32768);//32768 is 0V //!!!
-        elec_state_flag = (param_elecPolar?PN_P:NP_N);
-      }
-      else if(value!=0){
-        Timer2.attachInterrupt(elec_TIMER_HANDLER);//call this function every period_us;
+      // if(setup_flag){
+      //   dac8563_output(0,32768);//32768 is 0V //!!!
+      //   elec_state_flag = (param_elecPolar?PN_P:NP_N);
+      // }
+      // else if(value!=0){
+      //   Timer2.attachInterrupt(elec_TIMER_HANDLER);//call this function every period_us;
 
-        elecAmp_tmp         = 32768*param_elecAmp/10000 +32768;
-        elecAmp             = (elecAmp_tmp>65535)?65535:elecAmp_tmp;//convert from mv to DAC number
-        elecAmp_negtive_tmp = 32768 - 32768*param_elecAmp/10000;
-        elecAmp_negtive     = (elecAmp_negtive_tmp<0)?0:elecAmp_negtive_tmp;//convert from mv to DAC number
-        elec_period_us      = 1000000 / param_elecFrequency;
-        elec_duration_us    = param_elecDur;    
+      //   elecAmp_tmp         = 32768*param_elecAmp/10000 +32768;
+      //   elecAmp             = (elecAmp_tmp>65535)?65535:elecAmp_tmp;//convert from mv to DAC number
+      //   elecAmp_negtive_tmp = 32768 - 32768*param_elecAmp/10000;
+      //   elecAmp_negtive     = (elecAmp_negtive_tmp<0)?0:elecAmp_negtive_tmp;//convert from mv to DAC number
+      //   elec_period_us      = 1000000 / param_elecFrequency;
+      //   elec_duration_us    = param_elecDur;    
 
-        if((elec_duration_us > 9) && (elec_period_us - 2*elec_duration_us>9)){//because of hardware limitation,avoid Max Freq bigger than 100kHz,you can speed up SPI clock to push this threshold
-          elec_state_flag = (param_elecPolar?PN_P:NP_N);
-          dac8563_output(0,((elec_state_flag == NP_N)?elecAmp_negtive:elecAmp));
-          Timer2.start(elec_duration_us);
-        }else{
-          RAISE_ERROR(__LINE__);//ERROR:param_elecFrequency and param_elecDur value are illegue!
-        }    
-      }
-      else{
-        Timer2.stop();
-        dac8563_output(0,32768);//32768 is 0V
-        elec_state_flag = (param_elecPolar?PN_P:NP_N);
-      }
+      //   if((elec_duration_us > 9) && (elec_period_us - 2*elec_duration_us>9)){//because of hardware limitation,avoid Max Freq bigger than 100kHz,you can speed up SPI clock to push this threshold
+      //     elec_state_flag = (param_elecPolar?PN_P:NP_N);
+      //     dac8563_output(0,((elec_state_flag == NP_N)?elecAmp_negtive:elecAmp));
+      //     Timer2.start(elec_duration_us);
+      //   }else{
+      //     RAISE_ERROR(__LINE__);//ERROR:param_elecFrequency and param_elecDur value are illegue!
+      //   }    
+      // }
+      // else{
+      //   Timer2.stop();
+      //   dac8563_output(0,32768);//32768 is 0V
+      //   elec_state_flag = (param_elecPolar?PN_P:NP_N);
+      // }
     }
     
     //laser
@@ -258,7 +266,7 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
         laser_positive_flag = true;
       }
       else if(value!=0){
-        Timer3.attachInterrupt(laser_TIMER_HANDLER);//call this function every period_us;
+        //Timer3.attachInterrupt(laser_TIMER_HANDLER);//call this function every period_us;
 
         laserAmp_tmp      = 32768*param_laserAmp/10000 +32768;
         laserAmp          = (laserAmp_tmp>65535)?65535:laserAmp_tmp;//to avoid overflow
@@ -266,15 +274,17 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
         laser_duration_us = param_laserDur;
 
         if((laser_duration_us > 9) && (laser_period_us-laser_duration_us>9)){//because of hardware limitation,avoid Max Freq bigger than 100kHz,you can speed up SPI clock to push this threshold
-          dac8563_output(1,laserAmp);
           laser_positive_flag = true;
-          Timer3.start(laser_duration_us);
+          //Timer3.start(laser_duration_us);
+          timer_init(3);
+          dac8563_output(1,laserAmp);
         }else{
           RAISE_ERROR(__LINE__);//ERROR:param_laserFrequency and param_laserDur value are illegue!
         }
       }
       else{
-        Timer3.stop();
+        //Timer3.stop();
+        TC1->TC_CHANNEL[0].TC_CCR = TC_CCR_CLKDIS;//close the timer
         laser_positive_flag = true;
         dac8563_output(1,32768);//32768 is 0V
       }
@@ -687,62 +697,83 @@ void RAISE_HINT(int line_number){
 //================print info function  [end]====================//
 
 //================TIMER CALLBACK function[begin]================//
-void tone_TIMER_HANDLER(void){
-  int random_value = random(0, 4096);
-  analogWrite(stim2pinMapping[ch_tone],random_value);//
-}
-void laser_TIMER_HANDLER(void){
+// void tone_TIMER_HANDLER(void){
+//   int random_value = random(0, 4096);
+//   analogWrite(stim2pinMapping[ch_tone],random_value);//
+// }
+void TC3_Handler(){//predefined function name in chip core lib, Timer3 callback function
+  TC1->TC_CHANNEL[0].TC_SR;  // clear interrupt flag
+
+  if(!debug_first_enter_interrupt){  //!!!
+    debug_us_a = micros();//!!!
+  }  //!!!
+
   if(laser_positive_flag == false){
     laser_positive_flag = true;
     dac8563_output(1,laserAmp);
-    Timer3.start(laser_duration_us);
+    //Timer3.start(laser_duration_us);
+    TC1->TC_CHANNEL[0].TC_RC = laser_counter_number_set_A;//reset
 
   }else{
+    debug_us_b = micros();//!!!
     laser_positive_flag = false;
+    debug_us_c = micros();//!!!
     dac8563_output(1,32768);//32768 is 0V
-    Timer3.start(laser_period_us  - laser_duration_us);
+    debug_us_d = micros();//!!!
+    //Timer3.start(laser_period_us  - laser_duration_us);
+    TC1->TC_CHANNEL[0].TC_RC = laser_counter_number_set_B;//reset
+    debug_us_e = micros();//!!!
   }
+
+  if(!debug_first_enter_interrupt){//!!!
+    debug_us_b = debug_us_b-debug_us_a;//!!!
+    debug_us_c = debug_us_c-debug_us_a;//!!!
+    debug_us_d = debug_us_d-debug_us_a;//!!!
+    debug_us_e = debug_us_e-debug_us_a;//!!!
+    Serial1.println(debug_us_b);//!!!
+    Serial1.println(debug_us_c);//!!!
+    Serial1.println(debug_us_d);//!!!
+    Serial1.println(debug_us_e);//!!!
+    debug_first_enter_interrupt = true;//!!!
+  }//!!!
 }
-void elec_TIMER_HANDLER(void){//!!!FIXME:change 1 to 0(port A)
-  if(elec_state_flag == NP_N){
-    elec_state_flag = NP_P;
-    dac8563_output(0,elecAmp);
-    Timer2.start(elec_duration_us);
-  }
-  else if(elec_state_flag == NP_P){
-    elec_state_flag = NP_LOW;
-    dac8563_output(0,32768);
-    Timer2.start(elec_period_us - 2*elec_duration_us);
-  }
-  else if(elec_state_flag == NP_LOW){
-    elec_state_flag = NP_N;
-    dac8563_output(0,elecAmp_negtive);
-    Timer2.start(elec_duration_us);
-  }
-  else if(elec_state_flag == PN_P){
-    elec_state_flag = PN_N;
-    dac8563_output(0,elecAmp_negtive);
-    Timer2.start(elec_duration_us);    
-  }
-  else if(elec_state_flag == PN_N){
-    elec_state_flag = PN_LOW;
-    dac8563_output(0,32768);
-    Timer2.start(elec_period_us - 2*elec_duration_us);  
-  }
-  else if(elec_state_flag == PN_LOW){
-    elec_state_flag = PN_P;
-    dac8563_output(0,elecAmp);
-    Timer2.start(elec_duration_us);    
-  }
-}
+// void elec_TIMER_HANDLER(void){//!!!FIXME:change 1 to 0(port A)
+//   if(elec_state_flag == NP_N){
+//     elec_state_flag = NP_P;
+//     dac8563_output(0,elecAmp);
+//     Timer2.start(elec_duration_us);
+//   }
+//   else if(elec_state_flag == NP_P){
+//     elec_state_flag = NP_LOW;
+//     dac8563_output(0,32768);
+//     Timer2.start(elec_period_us - 2*elec_duration_us);
+//   }
+//   else if(elec_state_flag == NP_LOW){
+//     elec_state_flag = NP_N;
+//     dac8563_output(0,elecAmp_negtive);
+//     Timer2.start(elec_duration_us);
+//   }
+//   else if(elec_state_flag == PN_P){
+//     elec_state_flag = PN_N;
+//     dac8563_output(0,elecAmp_negtive);
+//     Timer2.start(elec_duration_us);    
+//   }
+//   else if(elec_state_flag == PN_N){
+//     elec_state_flag = PN_LOW;
+//     dac8563_output(0,32768);
+//     Timer2.start(elec_period_us - 2*elec_duration_us);  
+//   }
+//   else if(elec_state_flag == PN_LOW){
+//     elec_state_flag = PN_P;
+//     dac8563_output(0,elecAmp);
+//     Timer2.start(elec_duration_us);    
+//   }
+// }
 //================TIMER CALLBACK function[end]==================//
 
 //================DAC 8563 driverfunction[begin]================//
 void dac8563_init(void){
   //setup dac control pins
-  pin_driver(dac8563_sync_pin,1);
-  pin_driver(dac8563_ldac_pin,0);
-  pin_driver(dac8563_clr_pin ,1);
   digitalWrite(dac8563_clr_pin ,0);//hardware reset
   delay(1);
   digitalWrite(dac8563_clr_pin ,1);
@@ -785,3 +816,28 @@ void writeDAC(uint8_t cmd,uint16_t data){
   digitalWrite(dac8563_sync_pin,1);  
 }
 //================DAC 8563 driverfunction[end]==================//
+
+//========================timer function[begin]================//
+void timer_init(int timer_number){//!!!current open timer3 for test
+  if(timer_number==3){
+  //Timer3 is TC1 CHANNEL0
+  pmc_enable_periph_clk(ID_TC3);//open timer clock source 
+
+  TC1->TC_CHANNEL[0].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2 | //configure channel mode register (CMR) CLOCK2 is source(84M)/8 = 10.5MHz(95.238ns)(Spec page 881)
+                              TC_CMR_CPCTRG;               //use RC compare interrupt(Spec page 882)
+
+  laser_counter_number_set_A = laser_duration_us * 1000 / 95.238 -1;
+  laser_counter_number_set_B = (laser_period_us  - laser_duration_us)*1000 / 95.328 -1;
+  TC1->TC_CHANNEL[0].TC_RC  = laser_counter_number_set_A;//setup counter number (Spec page 891)
+  
+  TC1->TC_CHANNEL[0].TC_IER = TC_IER_CPCS;//open timer interrupt call-back
+  NVIC_SetPriority(TC3_IRQn, 0);
+  NVIC_EnableIRQ(TC3_IRQn);
+
+  TC1->TC_CHANNEL[0].TC_CCR = TC_CCR_CLKEN | //start timer
+                              TC_CCR_SWTRG;
+  }
+};
+
+
+//========================timer function[end]==================//
