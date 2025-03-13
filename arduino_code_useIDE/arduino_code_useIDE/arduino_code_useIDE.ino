@@ -1,6 +1,7 @@
 #include "init.h"
-#include <SPI.h>
-#include <sam.h>
+#include <SPI.h> // for tone, elec, laser
+#include <sam.h> // for tone, elec, laser
+
 // communicating headers
 const uint8_t ENCODER_L = 100;
 const uint8_t TIME_L = 101;
@@ -24,20 +25,21 @@ int param_camposttime = 800;
 int param_csdur       = 500;
 int param_cs2dur      = 500;
 int param_cs3dur      = 500;
-int param_delay1      = 500;
 int param_delay2      = 500;
+int param_delay3      = 500;
 int param_usdur       = 20;
 int param_ISI         = 200;
 int param_stimdelay   = 100; 
 int param_stimdur     = 500;
-int param_toneFrequency   = 100;//10kHz
+//int param_toneFrequency   = 100;//kHz  // NOTE:now we use tone_tm_step_us const = 10 us
+int param_toneVolume      = 50; //NOTE:Arduino  DAC can only output 1/6VCC ~ 5/6VCC, about 0.55~2.8V
 int param_elecFrequency   = 300;//300Hz
 int param_elecDur         = 300;//300us
 int param_elecAmp         = 1000;//1000mV
-int param_elecPolar       = 1;//0:NP  1:PN
+int param_elecPolar       = 0; //0:NP  1:PN
 int param_laserFrequency  = 300;//300Hz
 int param_laserDur        = 300;//300us
-int param_laserAmp        = 1000;//1000mV
+int param_laserAmp        = 1000; //1000mV
 
 int param_csch    = ch_brightled;
 int param_cs2ch   = ch_odor2;
@@ -45,96 +47,97 @@ int param_cs3ch   = ch_odor3;
 int param_usch    = ch_puffer_eye;   
 int param_stimch  = ch_tone; 
 
-//pins
-const int pin_brightled = 7;
-const int pin_whisker   = 10;
-const int pin_eye_puff  = 13;
-const int DAC_PIN       = DAC0;
-const int pin_elec      = 34;//FIXME:unused,just a flag
-const int pin_laser     = 12;//FIXME:unused,just a flag
-const int pin_odor1     = 30;
-const int pin_odor2     = 31;
-const int pin_odor3     = 32;
-const int pin_odor4     = 33;
-const int pin_solenoid  = 37;
+// -- pins in arduino ---
+const int pin_camera          = 2; // 5 is available for cam2
+const int pin_eye_puff        = 3; 
+const int pin_water           = 4; // solenoid
 
-const int pin_camera    = 8;
-const int pin_enc_pin1  = 2;
-const int pin_enc_pin2  = 3;
-const int pin_pump      = 22;
-const int pin_LED1      = 2;
-const int pin_LED2      = 3;
-const int pin_camera2   = 25;
-const int pin_go1       = 26;
-const int pin_go2       = 27;
-const int pin_fv        = 36;
+const int pin_oscillo_sync    = 6; // sync signal for time 0
+const int pin_brightled       = 7;
+const int pin_led             = 8;
 
-const int pin_lick      = 41; // after 41, for sensors
+const int pin_odor1           = 11;
+const int pin_odor2           = 12;
+const int pin_odor3           = 13;
+const int pin_odor4           = 14;
+const int pin_fv              = 15;
 
-//DAC8563 pins
-const int dac8563_sync_pin = 35;//DAC SPI CS:active low
-const int dac8563_ldac_pin = 38;//always HIGH
-const int dac8563_clr_pin  = 39;//active LOW
+//pin[18] And pin[19] are reserved for Serial1
 
-const int stim2pinMapping[16] {
-  0,
-  pin_brightled,    //1
-  pin_whisker,
-  pin_eye_puff,
-  0,
-  DAC1,          //5
-  0,
-  pin_elec,         //ELEC_PIN,
-  pin_laser,        //8
-  0,
-  pin_odor1,        //10
-  pin_odor2,
-  pin_odor3,
-  pin_odor4,
-  pin_solenoid,
-  0
-};
+// ==== DAC8563 pins ======
+const int dac8563_sync_pin    = 37;//DAC SPI CS:active low
+const int dac8563_ldac_pin    = 38;//always HIGH
+const int dac8563_clr_pin     = 39;//active LOW
 
+// --- sensor pins: after 41 ----
+const int pin_enc_pin1        = 41;
+const int pin_enc_pin2        = 42;
+const int pin_lick            = 43;
+
+// --- virtual pins:after 90 ----
+const int pin_elec            = 94;//NOTE:unused, just a virtual pin
+const int pin_laser           = 95;//NOTE:unused, just a virtual pin
+
+int pin_value_memory[100]; //-1:initial  0:off 1:on
+
+
+
+int       tone_max_number_set;
+
+float     laserAmp_tmp; //32768*param_laserAmp/10000 +32768;
+uint16_t  laserAmp; //(laserAmp_tmp>65535)?65535:laserAmp_tmp;//to avoid overflow
+bool      laser_positive_flag;
+int       laser_period_us; //1000000 / param_laserFrequency;
+int       laser_duration_us; //param_laserDur;
+
+float     elecAmp_tmp; //32768*param_elecAmp/10000 +32768;
+uint16_t  elecAmp; //(elecAmp_tmp>65535)?65535:elecAmp_tmp;//to avoid overflow
+float     elecAmp_negtive_tmp;
+uint16_t  elecAmp_negtive;
+Elec_status   elec_state_flag; //see in init.h
+int       elec_period_us; //1000000 / param_laserFrequency;
+int       elec_duration_us; //param_laserDur;
+
+int  laser_counter_number_set_A,laser_counter_number_set_B;
+int  elec_counter_number_set_A,elec_counter_number_set_B;
+
+int  tone_tm_step_us = 10;//tone is 100kHz
+int  tone_counter_number_set;
+
+// --- memory for sensors (enc, lick, touch) ------
 uint8_t   sensor_readings[SENSOR_BUF_MAXLEN];
 uint8_t   sensor_times[10];
 int       sensor_data_index  = 0;
 int       sensor_buf_sendlen = 1000;
 
-float     laserAmp_tmp;//32768*param_laserAmp/10000 +32768;
-uint16_t  laserAmp;//(laserAmp_tmp>65535)?65535:laserAmp_tmp;//to avoid overflow
-bool      laser_positive_flag;
-int       laser_period_us;//1000000 / param_laserFrequency;
-int       laser_duration_us;//param_laserDur;
+////// matlab ch -> arduino pin ///////
+const int stim2pinMapping[16] {
+  0,
+  pin_brightled,    //ch 1
+  pin_led,
+  pin_eye_puff,
+  0,
+  DAC1,             //ch 5
+  0,
+  pin_elec,         //ch 7,
+  pin_laser,        //ch 8
+  0,
+  pin_odor1,        //ch 10
+  pin_odor2,
+  pin_odor3,
+  pin_odor4,
+  pin_water,
+  0
+};
+//////////////////////////////////
 
-float     elecAmp_tmp;//32768*param_elecAmp/10000 +32768;
-uint16_t  elecAmp;//(elecAmp_tmp>65535)?65535:elecAmp_tmp;//to avoid overflow
-float     elecAmp_negtive_tmp;
-uint16_t  elecAmp_negtive;
-Elec_status   elec_state_flag;//see in init.h
-int       elec_period_us;//1000000 / param_laserFrequency;
-int       elec_duration_us;//param_laserDur;
-
-int       tone_period_us;
-
-int pin_value_memory[70];//-1:initial  0:off 1:on
-
-int  laser_counter_number_set_A,laser_counter_number_set_B;
-int  elec_counter_number_set_A,elec_counter_number_set_B;
-int  tone_counter_number_set;
+// ========== arduino main functions ===============
 void setup() {  // put your initialization code here, to run once:
   setup_serial();
   setup_SPI();
   setup_pins();
   dac8563_init();
-
-  //!!!test
-  // pinMode(DAC0,OUTPUT);
-  // pinMode(DAC1,OUTPUT);
-  // analogWriteResolution(12);//setup
-  // analogWrite(DAC0,4095);
-  // analogWrite(DAC1,4095);
-  // while(1){;}
-
+  //add some test here
   randomSeed(micros());//use a random value(like time or adc value)as a random seed
   delay(10);
 }
@@ -145,13 +148,13 @@ void loop() {  // put your main code here, to run repeatedly:
 
 }
 
-//================setup function [begin]========================//
+//================ setup functions [begin] ========================//
 void setup_serial(void){
   Serial.begin(115200);
   Serial1.begin(115200);
   while(!Serial && !Serial1){ ;}//wait for Serial ready
 }
-void setup_SPI(void){
+void setup_SPI(void){ // for tone, elec, laser
   SPI.begin();
   SPI.beginTransaction(SPISettings(50000000,MSBFIRST,SPI_MODE1));//SPI_speed:10MHz max:50M *Note:when debugging,use 2MHz because logic analyzer cannot capture too fast signal
 }
@@ -171,7 +174,8 @@ void setup_pins(void){
   pin_driver(dac8563_ldac_pin,0);
   pin_driver(dac8563_clr_pin ,1);
   //setup camera
-  pin_driver(pin_camera,0);
+  pin_driver(pin_camera, 0);
+  pin_driver(pin_oscillo_sync, 0);  
 
   Serial1.println("device set up OK");
 }
@@ -186,27 +190,30 @@ void sensor_reset(void){//enc only setup in conditioning lab
     sensor_readings[i] = 0xFF;
   }
 }
-//================setup function [end]-========================//
+//================ setup function [end] ========================//
 
 
-//================pin driver function [begin]==================//
-void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communication. DO NOT driver it other than use Serial
-  //only act when [1.first init]  OR [2.pin value change] ,don't act when value is not change
+//================ pin driver function [begin] ==================//
+void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communication. DO NOT drive it (dedicated for Serial)
+  // *This func is triggered every 1 ms in conditioning
+  // **This func is active only in 2 cases:
+  // ***pin_value_memory store the pin value(t-1) with reset value -1
+  // [1.first init]  when value(t-1) = -1 (i.e. setup_flag = 1) (i.e. at the setup_pins func)
+  // [2.pin value change]  value(t-1) != value(t),  (i.e. value_change_flag = 1)
   bool  setup_flag;
   bool  value_change_flag;
   int   random_value;
 
   setup_flag        = (pin_value_memory[pin_number] == -1);//if 1 ,we should set pinMode before drive
   value_change_flag = (pin_value_memory[pin_number] != value);//if 1,the value change,we should drive it
-  random_value      = random(0, 4096);
-  if(pin_number == 0 || pin_number == 1){
+  if(pin_number == 0 || pin_number == 1){ // pin 0,1 is used for serial communication. DO NOT drive it 
     return;
   }
 
   if(setup_flag || value_change_flag){
-    pin_value_memory[pin_number] = value;//update value memory
+    pin_value_memory[pin_number] = value; //update value memory
 
-    //++++digital pin++++++++
+    //++++ digital pin (for CS, US, cam, etc) ++++++++
     if (pin_number <54 && pin_number!=stim2pinMapping[ch_elec] && pin_number!=stim2pinMapping[ch_laser]){
       if(setup_flag){ 
         pinMode(pin_number,OUTPUT);
@@ -214,19 +221,20 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
         digitalWrite(pin_number,value);
     }    
 
-    //++++++tone+++++++++++++
+    //++++++ tone +++++++++++++
     else if(pin_number == stim2pinMapping[ch_tone]){
       if(setup_flag){
-        pinMode(pin_number,OUTPUT);
+        pinMode(pin_number, OUTPUT);
         analogWriteResolution(12);//setup 
         analogWrite(pin_number, 0);
+        tone_max_number_set = param_toneVolume*4096/100;
+        random_value      = random(0, tone_max_number_set);
       }
       else if(value!=0){
-
-        tone_period_us = 1000 / param_toneFrequency;
-        if(tone_period_us > 9){//because of hardware limitation,DAC Max Freq  bigger than 100kHz
+        tone_tm_step_us = 10;
+        if(tone_tm_step_us > 9){//because of hardware limitation,DAC Max Freq  bigger than 100kHz
           timer_start(1);
-          analogWrite(stim2pinMapping[ch_tone],random_value);
+          analogWrite(stim2pinMapping[ch_tone], random_value);
         }else{
           RAISE_ERROR(__LINE__);//ERROR:param_tone Frequency too HIGH!
         }
@@ -238,10 +246,10 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
       }
     }
 
-    //++++++++elec++++++++++++
-    else if(pin_number == stim2pinMapping[ch_elec]){//Timer2 and channelA //!!!FIXME:change 1 to 0(port A)
+    //++++++++ elec ++++++++++++
+    else if(pin_number == stim2pinMapping[ch_elec]){//Timer2 and channelB
       if(setup_flag){
-        dac8563_output(1,32768);//32768 is 0V //!!!
+        dac8563_output(1,32768);//32768 is 0V 
         elec_state_flag = (param_elecPolar?PN_P:NP_N);
       }
       else if(value!=0){
@@ -268,8 +276,8 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
       }
     }
     
-    //laser
-    else if(pin_number == stim2pinMapping[ch_laser]){//Timer3 and channelB
+    //++++++++ laser ++++++++++++
+    else if(pin_number == stim2pinMapping[ch_laser]){//Timer3 and channelA
       if(setup_flag){
         dac8563_output(0,32768);//32768 is 0V
         laser_positive_flag = true;
@@ -296,8 +304,6 @@ void pin_driver(int pin_number,int value){ // pin 0,1 is used for serial communi
         dac8563_output(0,32768);//32768 is 0V
       }
     }
-
-
   }
 }
 
@@ -371,6 +377,7 @@ void startConditioning(void){
 bool output_controller(int execute_ms){
   bool exit_flag;
   Pin_information pin_cam_info; //Pin_information is a used-defined variable type (it has pin_status and pin_value)
+  Pin_information pin_sync_info; 
   Pin_information pin_stim_info;     // see main.h
   Pin_information pin_cs_info;
   Pin_information pin_cs2_info;
@@ -379,16 +386,18 @@ bool output_controller(int execute_ms){
   //--------------- 1.get pin output information (status and value) ---------------
   //                                 |delay                                  |duration                             |current_time
   pin_cam_info   = update_output_info(0                                      ,param_campretime+param_camposttime   ,execute_ms);
+  pin_sync_info  = update_output_info(param_campretime                       ,50                                   ,execute_ms);
   pin_stim_info  = update_output_info(param_campretime+param_stimdelay       ,param_stimdur                        ,execute_ms);
   pin_cs_info    = update_output_info(param_campretime                       ,param_csdur                          ,execute_ms);
-  pin_cs2_info   = update_output_info(param_campretime+param_delay1          ,param_cs2dur                         ,execute_ms);
-  pin_cs3_info   = update_output_info(param_campretime+param_delay2          ,param_cs3dur                         ,execute_ms);
+  pin_cs2_info   = update_output_info(param_campretime+param_delay2          ,param_cs2dur                         ,execute_ms);
+  pin_cs3_info   = update_output_info(param_campretime+param_delay3          ,param_cs3dur                         ,execute_ms);
   pin_us_info    = update_output_info(param_campretime+param_ISI             ,param_usdur                          ,execute_ms); 
 
   bool pin_fv_value = pin_cs_info.pin_value || pin_cs2_info.pin_value || pin_cs3_info.pin_value;
 
   //--------------  2.drive the pin (on/off control by arduino built-in function, digitalWrite) ---------------
   pin_driver(pin_camera                   ,pin_cam_info    .pin_value);//camera
+  pin_driver(pin_oscillo_sync             ,pin_sync_info   .pin_value);//sync
   pin_driver(stim2pinMapping[param_stimch],pin_stim_info   .pin_value);//stim
   pin_driver(stim2pinMapping[param_csch]  ,pin_cs_info     .pin_value);//cs
   pin_driver(stim2pinMapping[param_cs2ch] ,pin_cs2_info    .pin_value);//cs2
@@ -429,13 +438,13 @@ void sensor_input_reader(int execute_ms){
   bit [0]             | enc_pin1
   ______________________________________
   */
-//================conditioning functions [end]=====================//
+//================ conditioning functions [end] =====================//
 
 
 
 
-//================communicate function (from matlab) [begin]=================//
-//All data(params/command) has the same 4Byte structure to simplify communication with MATLAB
+//================ communicate function (from matlab) [begin] =================//
+//All data(params/command) has the same 4 Byte structure to simplify communication with MATLAB
 //2Bytes header + 2Bytes body, header=1 implify body is command
 void check_matlab_message(void) {
   uint8_t param_block[4];
@@ -445,7 +454,7 @@ void check_matlab_message(void) {
   int command;
   while (Serial.available() > 0 ) {
     //wait for receiving 4Byte data
-    delay(10);  //one byte cost 0.1ms at 115200 baudrate
+    delay(5);  //one byte cost 0.1ms at 115200 baudrate
     
     //receive the whole 4Byte data
     if (Serial.available() >= 4) {
@@ -482,7 +491,7 @@ void check_matlab_message(void) {
           param_ISI = value;
           break;
         case 8:
-          param_toneFrequency = value;//kHz
+          // param_toneFrequency = value;//kHz
           break;
         case 9:
           param_camposttime = value;
@@ -496,25 +505,7 @@ void check_matlab_message(void) {
         case 12:
           param_stimdur = value;
           break;
-        case 13:
-          //param_laserpower = value;
-          break;
 
-        case 15:
-          //param_laserperiod = value;
-          break;
-        case 16:
-          //param_lasernumpulses = value;
-          break;
-        // case 20:
-        //   param_csperiod = value;
-        //   break;
-        // case 21:
-        //   param_csrepeats = value;
-        //   break;
-        case 22:
-          //param_rampoffdur = value; //ALvaro 10/19/18
-          break;
         case 24:
           param_elecDur = value;//us
           break;
@@ -533,7 +524,7 @@ void check_matlab_message(void) {
           //param_laserRepeats = value;
           break;
         case 30: 
-          //param_toneAmp = value;//mv   NOTE:We use random wave so this is not use anymore
+          param_toneVolume = value; //NOTE:0 ~`100
           break; 
         case 31: 
           param_elecFrequency = value;//Hz
@@ -547,41 +538,7 @@ void check_matlab_message(void) {
         case 34:
           param_elecPolar = value;
           break;
-        case 35:
-          //event1_pin= value;
-          break;
-        case 36:
-          //event2_pin= value;
-          break;
-        case 37:
-          //event3_pin= value;
-          break;
-        case 38:
-          //trialnums = value;
-          break;
-        case 39:
-          //Interval1 = value;
-          break;
-        case 40:
-          //Interval2 = value;
-          break;
-        case 41:
-          //ITI = value;
-          break;
-        case 42:
-          //pre_timewindows = value;
-          break;
-        case 43:
-          //post_timewindows = value;
-          break;
-        case 44:
-          //rewardDuration = value;
-          break;
-        case 45:
-          break;
-        case 46:
-          //current_brightness = value;
-          break;
+
         case 47:
           param_cs2ch = value;
           break;
@@ -595,13 +552,10 @@ void check_matlab_message(void) {
           param_cs3dur = value;
           break;
         case 51:
-          param_delay1 = value;
-          break;
-        case 52:
           param_delay2 = value;
           break;
-        case 54:
-          //pump_dur = value;
+        case 52:
+          param_delay3 = value;
           break;
         default:
           break;
@@ -609,7 +563,7 @@ void check_matlab_message(void) {
 
     }
     else {
-      //illegal data format other than 4Bytes
+      //illegal data format other than 4 Bytes
       available_number = Serial.available();
       Serial1.println(available_number);
       //for(int j=0;j<available_number;j++){
@@ -632,22 +586,16 @@ void command_exe(int command){
           sendSensorData();
           break;
       case 3:
-          //elecOn(0);
           break;
       case 4:
-          //elecOff(0);
           break;
       case 5: 
-          //laserOn(0);
           break;
       case 6:
-          //laserOff(0);
           break;
       case 7:
-          //toneOn(DAC_PIN);
           break;
       case 8:
-          //toneOff(DAC_PIN);
           break;
       case 9:
           //startLeverTask();  // previously "startTrial()"
@@ -672,9 +620,9 @@ void sendSensorData(void) {
     }
     RAISE_HINT(__LINE__);
 }
-//================communicate function [end]=================//
+//================ communicate function [end] =================//
 
-//================send data function (to matlab) [begin]===================//
+//================ send data function (to matlab) [begin]===================//
 void writeByte(uint8_t val){
   Serial.write(val);
 }
@@ -685,9 +633,9 @@ void writeTwoByte(uint16_t val){
   Serial.write(low_Byte);//send low_byte first
   Serial.write(high_Byte);
 }
-//================send data function [end]=====================//
+//================ send data function [end]=====================//
 
-//================print info function [begin]==================//
+//================ print error info function (via Serial1 of arduino) [begin]==================//
 void RAISE_ERROR(int line_number){
   Serial1.print("ERROR[");
   Serial1.print(line_number);
@@ -703,14 +651,18 @@ void RAISE_HINT(int line_number){
   Serial1.print(line_number);
   Serial1.println("]");
 }
-//================print info function  [end]====================//
+//================ print info function  [end]====================//
 
-//================TIMER CALLBACK function[begin]================//
+
+/////////////////////////////////////////////////////////////////////////////////////////
+//////////////////// Below, funcitions only for the tone, elec, laser outputs  //////////////////////
+
+//================ TIMER CALLBACK function to trigger actual *output* [begin]================//
 /*tone timer handler*/
 void TC1_Handler(){//predefined function name in chip core lib, Timer3 callback function
   TC0->TC_CHANNEL[1].TC_SR;  // clear interrupt flag
-  int random_value = random(0, 4096);
-  analogWrite(stim2pinMapping[ch_tone],random_value);//
+  int random_value = random(0, tone_max_number_set);
+  analogWrite(stim2pinMapping[ch_tone], random_value);//
 }
 
 void TC3_Handler(){//predefined function name in chip core lib, Timer3 callback function
@@ -762,9 +714,9 @@ void TC2_Handler(){//predefined function name in chip core lib, Timer3 callback 
     dac8563_output(1,elecAmp); 
   }
 }
-//================TIMER CALLBACK function[end]==================//
+//================ TIMER CALLBACK function[end]==================//
 
-//================DAC 8563 driverfunction[begin]================//
+//================ DAC 8563 driverfunction[begin]================//
 void dac8563_init(void){
   //setup dac control pins
   digitalWrite(dac8563_clr_pin ,0);//hardware reset
@@ -780,7 +732,6 @@ void dac8563_init(void){
   delay(1);
   dac8563_output(0,32768);//CHANNEL A 0-10V
   dac8563_output(1,32768);//CHANNEL B 32768 is 0V
-
 }
 
 void dac8563_output(int chan_num,uint16_t data){
@@ -805,9 +756,11 @@ void writeDAC(uint8_t cmd,uint16_t data){
   SPI.transfer(data & 0xFF);  //low byte of data    
   digitalWrite(dac8563_sync_pin,1);  
 }
-//================DAC 8563 driverfunction[end]==================//
+//================ DAC 8563 driverfunction[end]==================//
 
-//========================timer function[begin]================//
+//======================== timer function[begin]================//
+//  This uses register timer.  One clock cycle of the timer = 95.238 ns. 
+//  The timers control on/off *timings* of pulses for tone, laser, elec. (do not control output pins)
 void timer_start(int timer_number){//!!!current open timer3 for test
 
   if(timer_number==3){          //Timer3 is TC1 CHANNEL0
@@ -816,8 +769,8 @@ void timer_start(int timer_number){//!!!current open timer3 for test
   TC1->TC_CHANNEL[0].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2 | //configure channel mode register (CMR) CLOCK2 is source(84M)/8 = 10.5MHz(95.238ns)(Spec page 881)
                               TC_CMR_CPCTRG;               //use RC compare interrupt(Spec page 882)
 
-  laser_counter_number_set_A = laser_duration_us * 1000 / 95.238 -1;
-  laser_counter_number_set_B = (laser_period_us  - laser_duration_us)*1000 / 95.328 -1;
+  laser_counter_number_set_A = laser_duration_us * 1000 / 95.238 -1; // counting the num of clock cycles for pulse dur
+  laser_counter_number_set_B = (laser_period_us  - laser_duration_us) *1000 / 95.328 -1; // for inter-pulse interval
   TC1->TC_CHANNEL[0].TC_RC  = laser_counter_number_set_A;//setup counter number (Spec page 891)
   
   TC1->TC_CHANNEL[0].TC_IER = TC_IER_CPCS;//open timer interrupt call-back
@@ -852,7 +805,7 @@ void timer_start(int timer_number){//!!!current open timer3 for test
   TC0->TC_CHANNEL[1].TC_CMR = TC_CMR_TCCLKS_TIMER_CLOCK2 | //configure channel mode register (CMR) CLOCK2 is source(84M)/8 = 10.5MHz(95.238ns)(Spec page 881)
                               TC_CMR_CPCTRG;               //use RC compare interrupt(Spec page 882)
 
-  tone_counter_number_set   = tone_period_us * 1000 / 95.238 -1;
+  tone_counter_number_set   = tone_tm_step_us * 1000 / 95.238 -1;
   TC0->TC_CHANNEL[1].TC_RC  = tone_counter_number_set;//setup counter number (Spec page 891)
   
   TC0->TC_CHANNEL[1].TC_IER = TC_IER_CPCS;//open timer interrupt call-back
@@ -884,7 +837,6 @@ void timer_stop(int timer_number){//!!! add timer1
   else if(timer_number==1){
     TC0->TC_CHANNEL[1].TC_CCR = TC_CCR_CLKDIS;//close the timer
   }
-
 }
 
-//========================timer function[end]==================//
+//======================== timer function[end]==================//
