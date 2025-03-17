@@ -3,9 +3,14 @@
 
 #include <Arduino.h>
 #define  MAX_EVENT_NUMBER  10  //NODE:must >= the real value of param_eventnums
-#define  SENSOR_BUF_MAXLEN 8000 //in bit
+#define  SENSOR_BUF_MAXLEN 80000 //in bit
 #define  BITS_PER_BYTE     8
 #define  BYTES_NEEDED(x) ((x + BITS_PER_BYTE - 1) / BITS_PER_BYTE)
+
+
+#define LEVER_DATA_HEADER        0x70
+#define LICK_DATA_HEADER         0x80
+
 
 typedef enum {
   FRESH,
@@ -46,5 +51,15 @@ void command_exe(int);
 void setBit(uint8_t *array, uint16_t bitIndex, bool value);
 bool check_press(int pin);
 bool check_lick(int pin);
-void event_init(void);
+
+void send_empty_data_to_MATLAB(void);
+
+bool verify_params(void);
+
+bool update_event_state(int event_execute_time,int press_result);
+
+void trial_init(void);
+
+bool training_init(void);
+
 #endif
