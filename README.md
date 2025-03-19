@@ -1,6 +1,6 @@
 # Arduino_Code_Rewrite_Project
-main branch is for conditioning task
-lever branch is for lever task
+main branch is for conditioning task     
+lever branch is for lever task     
 
 !!!在动代码前想清楚，这么写是有原因的，否则可能会重蹈一遍之前踩过的坑。    
 举个栗子：    
